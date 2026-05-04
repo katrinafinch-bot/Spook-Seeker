@@ -1,0 +1,24 @@
+[
+  {
+    "family": "Blue",
+    "kona": "Kona Nautical",
+    "bella": "Bella Royal",
+    "agf": "AGF Ocean Wave",
+    "freespirit": "FreeSpirit Classic Blue",
+    "michaelMiller": "Michael Miller True Blue",
+    "windham": "Windham Sapphire",
+    "clothworks": "Clothworks Deep Blue",
+    "hoffman": "Hoffman Navy"
+  },
+  {
+    "family": "Red",
+    "kona": "Kona Rich Red",
+    "bella": "Bella Christmas Red",
+    "agf": "AGF London Red",
+    "freespirit": "FreeSpirit Scarlet",
+    "michaelMiller": "Michael Miller Candy Apple",
+    "windham": "Windham Crimson",
+    "clothworks": "Clothworks Red Hot",
+    "hoffman": "Hoffman Cardinal"
+  }
+]
