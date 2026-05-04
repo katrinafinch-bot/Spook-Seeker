@@ -1,0 +1,1989 @@
+import React, { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import starterThreads from "./data/thread-library.json";
+import { t, LANGUAGES, getColorFamilies } from "./i18n.js";
+
+// ─────────────────────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────────────────────
+const APP_VERSION = "3.0.0";
+const LOCAL_LIBRARY_KEY = "spool_seeker_thread_library";
+const LOCAL_SYNC_META   = "spool_seeker_sync_meta";
+
+// English keys — NEVER change these, they are used internally for comparison
+const COLOR_FAMILY_KEYS = [
+  "All","Whites & Creams","Yellows & Golds","Oranges","Reds","Pinks & Magentas",
+  "Purples & Lavenders","Blues","Teals & Aquas","Greens","Browns & Tans",
+  "Greys & Blacks","Specialty & Variegated"
+];
+
+const threadBrands = [
+  ["Isacord","isacord"],["Glide","glide"],["Floriani","floriani"],
+  ["Madeira Polyneon","madeira"],["Sulky","sulky"],["Aurifil","aurifil"],
+  ["Omni","omni"],["King Tut","king_tut"],["So Fine","so_fine"],
+  ["Gutermann","gutermann"],["Mettler","mettler"],
+  ["Robison-Anton","robison_anton"],["Coats & Clark","coats_clark"],
+];
+
+// Map from UI brand label → brand_key in thread_library_all
+const brandKeyMap = {
+  "Isacord":          "isacord",
+  "Glide":            "glide",
+  "Floriani":         "floriani",
+  "Madeira Polyneon": "madeira",
+  "Sulky":            "sulky",
+  "Aurifil":          "aurifil",
+  "Omni":             "omni",
+  "King Tut":         "king_tut",
+  "So Fine":          "so_fine",
+  "Gutermann":        "gutermann",
+  "Mettler":          "mettler",
+  "Robison-Anton":    "robisonAnton",
+  "Coats & Clark":    "coats_clark",
+};
+
+const fabricBrands = [
+  ["Kona Cotton","kona"],["Bella Solids","bella"],["AGF Pure Solids","agf"],
+  ["FreeSpirit","freespirit"],["Michael Miller","michaelMiller"],
+  ["Windham","windham"],["Clothworks","clothworks"],["Hoffman","hoffman"],
+];
+
+const commonSpoolSizes = ["Mini Cone","Small Spool","Medium Spool","Large Cone","500m","1000m","1100 yd","3000 yd","5000m"];
+const emptyForm = { name:"",family:"Unsorted",isacord:"",barcode:"",weight:"40 wt",spools:"1",inventoryTarget:"2",spoolSize:"1000m",swatch:"#0F766E" };
+const emptyProject = { name:"",status:"Planning",notes:"" };
+
+// ─────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────
+function versionCompare(a,b){
+  const pa=String(a||"0.0.0").split(".").map(n=>parseInt(n,10)||0);
+  const pb=String(b||"0.0.0").split(".").map(n=>parseInt(n,10)||0);
+  for(let i=0;i<Math.max(pa.length,pb.length);i++){
+    const av=pa[i]||0,bv=pb[i]||0;
+    if(av>bv)return 1;if(av<bv)return -1;
+  }
+  return 0;
+}
+function normalized(v){ return String(v||"").toLowerCase(); }
+function hexToRgb(hex){
+  const c=String(hex||"").replace("#","");
+  if(c.length!==6)return null;
+  return{r:parseInt(c.slice(0,2),16),g:parseInt(c.slice(2,4),16),b:parseInt(c.slice(4,6),16)};
+}
+function colorDistance(a,b){
+  if(!a||!b)return Number.MAX_SAFE_INTEGER;
+  const dr=a.r-b.r,dg=a.g-b.g,db=a.b-b.b;
+  return Math.sqrt(dr*dr+dg*dg+db*db);
+}
+
+// Find nearest color in a given brand by hex distance
+function findNearestInBrand(hex, targetBrandKey, allThreads){
+  if(!hex||!targetBrandKey||!allThreads.length) return null;
+  const rgb = hexToRgb(hex);
+  if(!rgb) return null;
+  let best = null, bestDist = Infinity;
+  for(const t of allThreads){
+    if(t.brand_key !== targetBrandKey || !t.hex_color) continue;
+    const dist = colorDistance(rgb, hexToRgb(t.hex_color));
+    if(dist < bestDist){ bestDist = dist; best = t; }
+  }
+  return best;
+}
+
+// Always returns an ENGLISH key from COLOR_FAMILY_KEYS — never a translated string
+// Accepts a hex string, OR a thread object with hex_color/r/g/b fields
+function hexToFamilyKey(hexOrThread){
+  let rgb;
+  if(hexOrThread && typeof hexOrThread==="object"){
+    // passed a thread object — extract color
+    if(hexOrThread.r!=null) rgb={r:hexOrThread.r,g:hexOrThread.g,b:hexOrThread.b};
+    else rgb=hexToRgb(hexOrThread.hex_color||hexOrThread.hex||hexOrThread.swatch);
+  } else {
+    rgb=hexToRgb(hexOrThread);
+  }
+  if(!rgb)return "Specialty & Variegated";
+  const{r,g,b}=rgb;
+  const max=Math.max(r,g,b),min=Math.min(r,g,b);
+  const l=(max+min)/2;
+  const chroma=max-min;
+  if(chroma<20){
+    if(l>210)return "Whites & Creams";
+    return "Greys & Blacks";
+  }
+  if(l>210&&chroma<60)return "Whites & Creams";
+  let h;
+  if(max===r)      h=((g-b)/chroma+6)%6;
+  else if(max===g) h=(b-r)/chroma+2;
+  else             h=(r-g)/chroma+4;
+  h=h*60;
+  if(h<15||h>=345) return "Reds";
+  if(h<38)         return "Oranges";
+  if(h<65)         return "Yellows & Golds";
+  if(h<150)        return "Greens";
+  if(h<185)        return "Teals & Aquas";
+  if(h<260)        return "Blues";
+  if(h<290)        return "Purples & Lavenders";
+  if(h<345)        return "Pinks & Magentas";
+  return "Specialty & Variegated";
+}
+
+// ─────────────────────────────────────────────────────────────
+// MACHINE STASH SECTION
+// ─────────────────────────────────────────────────────────────
+function MachineStashSection({ machines, supabase, userId, onRefresh }) {
+  const [editing, setEditing] = useState(null);
+  const [form, setForm]       = useState({});
+  const [saving, setSaving]   = useState(false);
+
+  function openEdit(item){
+    // Use machine_id (FK on user_machines) as the stable edit key
+    setEditing(item.machine_id||item.machine_library?.id);
+    setForm({
+      serial_number: item.serial_number||"",
+      purchase_date: item.purchase_date||"",
+      purchase_price:item.purchase_price||"",
+      dealer:        item.dealer||"",
+      warranty_until:item.warranty_until||"",
+      user_notes:    item.user_notes||"",
+    });
+  }
+
+  async function saveEdit(machineId){
+    if(!supabase||!userId)return;
+    setSaving(true);
+    const{error}=await supabase.from("user_machines").update({
+      serial_number: form.serial_number||null,
+      purchase_date: form.purchase_date||null,
+      purchase_price:form.purchase_price?parseFloat(form.purchase_price):null,
+      dealer:        form.dealer||null,
+      warranty_until:form.warranty_until||null,
+      user_notes:    form.user_notes||null,
+    }).eq("user_id",userId).eq("machine_id",machineId);
+    if(error) console.error("Save machine details error:",error);
+    setSaving(false);
+    setEditing(null);
+    onRefresh&&onRefresh();
+  }
+
+  async function removeMachine(machineId){
+    if(!supabase||!userId)return;
+    await supabase.from("user_machines").delete().eq("user_id",userId).eq("machine_id",machineId);
+    onRefresh&&onRefresh();
+  }
+
+  if(machines.length===0)return(
+    <div className="card"><h2>My Machines</h2><p className="muted">No machines yet — browse in More → Machines.</p></div>
+  );
+
+  return(
+    <div className="card">
+      <h2>My Machines ({machines.length})</h2>
+      {machines.map((item,i)=>{
+        const m=item.machine_library; if(!m)return null;
+        const machineId=item.machine_id||m.id;
+        const isEditing=editing===machineId;
+        const hasDetails=item.serial_number||item.purchase_date||item.dealer||item.warranty_until||item.purchase_price;
+        return(
+          <div key={i} className="sub-card" style={{marginBottom:12}}>
+
+            {/* ── Machine header ── */}
+            <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+              <div style={{flex:1}}>
+                <div style={{marginBottom:4}}>
+                  <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:6,
+                    background:"var(--sun-pale)",color:"var(--teal)",
+                    border:"1px solid var(--border-sun)",display:"inline-block"}}>
+                    {m.type}
+                  </span>
+                </div>
+                <div className="thread-name">{m.brand} {m.model}</div>
+                <div className="muted" style={{fontSize:12}}>{m.category}{m.throat_space?` · ${m.throat_space}" throat`:""}</div>
+
+                {/* Detail chips — visible when not editing */}
+                {!isEditing&&hasDetails&&(
+                  <div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:8}}>
+                    {item.serial_number&&<span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:6,background:"var(--teal-pale)",color:"var(--teal)",border:"1px solid var(--border-teal)"}}>S/N: {item.serial_number}</span>}
+                    {item.purchase_date&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:"var(--leaf-wash)",color:"var(--leaf)",border:"1px solid var(--leaf-light)"}}>📅 {item.purchase_date}</span>}
+                    {item.purchase_price&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:"var(--linen)",color:"var(--muted-warm)",border:"1px solid var(--border-warm)"}}>💰 ${parseFloat(item.purchase_price).toFixed(2)}</span>}
+                    {item.dealer&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:"var(--sky-wash)",color:"var(--sky-cobalt)",border:"1px solid var(--sky-pale)"}}>🏪 {item.dealer}</span>}
+                    {item.warranty_until&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:"var(--sun-wash)",color:"var(--sun-amber)",border:"1px solid var(--border-sun)"}}>🛡 warranty to {item.warranty_until}</span>}
+                  </div>
+                )}
+                {!isEditing&&item.user_notes&&(
+                  <div style={{fontSize:12,color:"var(--muted-warm)",marginTop:6,fontStyle:"italic",
+                    borderLeft:"3px solid var(--border-sun)",paddingLeft:8,lineHeight:1.4}}>
+                    {item.user_notes}
+                  </div>
+                )}
+                {!isEditing&&!hasDetails&&(
+                  <div className="muted" style={{fontSize:11,marginTop:5}}>
+                    Tap ✎ Edit to add serial number, purchase info &amp; notes
+                  </div>
+                )}
+              </div>
+
+              {/* Buttons */}
+              <div style={{display:"flex",flexDirection:"column",gap:5,flexShrink:0}}>
+                <button className={`btn ${isEditing?"active":""}`}
+                  style={{fontSize:11,padding:"6px 11px"}}
+                  onClick={()=>isEditing?setEditing(null):openEdit(item)}>
+                  {isEditing?"✕ Cancel":"✎ Edit"}
+                </button>
+                {!isEditing&&(
+                  <button className="btn"
+                    style={{fontSize:11,padding:"6px 11px",color:"#C0392B",borderColor:"#C0392B"}}
+                    onClick={()=>removeMachine(machineId)}>
+                    Remove
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* ── Edit form — expands below ── */}
+            {isEditing&&(
+              <div style={{
+                marginTop:14,paddingTop:14,
+                borderTop:"1.5px solid var(--border-teal)",
+              }}>
+                <div style={{fontFamily:"'Playfair Display',serif",fontSize:13,fontWeight:700,
+                  color:"var(--teal)",marginBottom:12}}>
+                  Edit — {m.brand} {m.model}
+                </div>
+
+                <label style={{fontSize:12}}>Serial Number
+                  <input className="input" value={form.serial_number}
+                    onChange={e=>setForm({...form,serial_number:e.target.value})}
+                    placeholder="Found on machine plate (usually bottom or back)"/>
+                </label>
+
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  <label style={{fontSize:12}}>Purchase Date
+                    <input className="input" type="date" value={form.purchase_date}
+                      onChange={e=>setForm({...form,purchase_date:e.target.value})}/>
+                  </label>
+                  <label style={{fontSize:12}}>Purchase Price ($)
+                    <input className="input" type="number" step="0.01" value={form.purchase_price}
+                      onChange={e=>setForm({...form,purchase_price:e.target.value})}
+                      placeholder="For insurance"/>
+                  </label>
+                </div>
+
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  <label style={{fontSize:12}}>Dealer / Shop
+                    <input className="input" value={form.dealer}
+                      onChange={e=>setForm({...form,dealer:e.target.value})}
+                      placeholder="Where you bought it"/>
+                  </label>
+                  <label style={{fontSize:12}}>Warranty Expiry
+                    <input className="input" type="date" value={form.warranty_until}
+                      onChange={e=>setForm({...form,warranty_until:e.target.value})}/>
+                  </label>
+                </div>
+
+                <label style={{fontSize:12}}>Notes
+                  <input className="input" value={form.user_notes}
+                    onChange={e=>setForm({...form,user_notes:e.target.value})}
+                    placeholder="Service history, quirks, mods, storage location…"/>
+                </label>
+
+                <button className="btn active" style={{width:"100%",marginTop:4}}
+                  onClick={()=>saveEdit(machineId)} disabled={saving}>
+                  {saving?"Saving…":"✓ Save Details"}
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// UNIVERSAL STASH
+// ─────────────────────────────────────────────────────────────
+function UniversalStash({ supabase, userId, shoppingList, mergedShoppingList, threads,
+  updateSpools, updateInventoryTarget, addManualShoppingItem, removeShoppingItem, settings }) {
+  const [activeSection, setActiveSection] = useState("threads");
+  const [stash, setStash] = useState({threads:[],rulers:[],machines:[],dies:[],feet:[],accessories:[]});
+  const [counts, setCounts] = useState({threads:0,rulers:0,machines:0,dies:0,feet:0,accessories:0});
+  const [loading, setLoading] = useState(true);
+  // Accessories state
+  const [accForm, setAccForm]   = useState({name:"",quantity:"1",notes:""});
+  const [showAccForm, setShowAccForm] = useState(false);
+
+  const fetchAll = useCallback(async()=>{
+    if(!supabase||!userId)return;
+    setLoading(true);
+    try{
+      const [{data:th},{data:ru},{data:ma},{data:di},{data:fe}] = await Promise.all([
+        supabase.from("user_inventory").select("spool_count,thread_id,thread_all_id,thread_library(color_code,color_name,hex_color),thread_library_all(brand,color_code,color_name,hex_color,fiber_type,weight)").eq("user_id",userId),
+        supabase.from("user_rulers").select("quantity,ruler_library(brand,model,shape,size_inches,material)").eq("user_id",userId),
+        supabase.from("user_machines").select("machine_id,serial_number,purchase_date,purchase_price,dealer,warranty_until,user_notes,machine_library(id,brand,model,type,category,throat_space,fun_fact)").eq("user_id",userId),
+        supabase.from("user_dies").select("quantity,machine_library(id,brand,model,type,category)").eq("user_id",userId),
+        supabase.from("user_feet").select("quantity,feet_library(brand,foot_name,category,shank_type)").eq("user_id",userId),
+      ]);
+      // Accessories — stored in localStorage for now
+      const savedAcc = JSON.parse(localStorage.getItem("hh_accessories")||"[]");
+      const s={threads:th||[],rulers:ru||[],machines:ma||[],dies:di||[],feet:fe||[],accessories:savedAcc};
+      setStash(s);
+      setCounts({threads:s.threads.length,rulers:s.rulers.length,machines:s.machines.length,dies:s.dies.length,feet:s.feet.length,accessories:s.accessories.length});
+    }catch(e){console.error("Stash fetch:",e);}
+    setLoading(false);
+  },[supabase,userId]);
+
+  useEffect(()=>{ fetchAll(); },[fetchAll]);
+
+  function saveAccessory(){
+    if(!accForm.name.trim())return;
+    const newAcc={id:Date.now(),...accForm,quantity:parseInt(accForm.quantity)||1};
+    const updated=[...stash.accessories,newAcc];
+    localStorage.setItem("hh_accessories",JSON.stringify(updated));
+    setStash(s=>({...s,accessories:updated}));
+    setCounts(c=>({...c,accessories:updated.length}));
+    setAccForm({name:"",quantity:"1",notes:""});
+    setShowAccForm(false);
+  }
+
+  function removeAccessory(id){
+    const updated=stash.accessories.filter(a=>a.id!==id);
+    localStorage.setItem("hh_accessories",JSON.stringify(updated));
+    setStash(s=>({...s,accessories:updated}));
+    setCounts(c=>({...c,accessories:updated.length}));
+  }
+
+  const catColors={
+    Quilting:{bg:"#E8F0FF",text:"#0047AB"},Garment:{bg:"#E0F5EC",text:"#1A6B4A"},
+    Embroidery:{bg:"#F3EAF8",text:"#6B3FA0"},Serging:{bg:"#FFF8E1",text:"#5C4A1E"},
+    Specialty:{bg:"#FDECEA",text:"#C0392B"},General:{bg:"#F5F5F5",text:"#888"},
+  };
+
+  const sections=[
+    {key:"threads",label:"Threads",emoji:"🧵"},
+    {key:"rulers",label:"Rulers",emoji:"📐"},
+    {key:"machines",label:"Machines",emoji:"⚙️"},
+    {key:"dies",label:"AccuQuilt",emoji:"◈"},
+    {key:"feet",label:"Feet",emoji:"👟"},
+    {key:"accessories",label:"Accessories",emoji:"✦"},
+  ];
+
+  const totalItems=Object.values(counts).reduce((a,b)=>a+b,0);
+
+  // Use Supabase stash threads if signed in, else local threads
+  const useSupaStash = supabase&&userId;
+
+  if(loading)return<div className="card"><p className="muted">Loading your stash…</p></div>;
+
+  return(
+    <div>
+      <div className="stash-banner">
+        <h2>Your Stash</h2>
+        <span className="count-chip">{totalItems} items</span>
+      </div>
+
+      {/* Section pills */}
+      <div className="section-pills">
+        {sections.map(s=>(
+          <button key={s.key} className={`section-pill ${activeSection===s.key?"active":""}`}
+            onClick={()=>setActiveSection(s.key)}>
+            {s.emoji} {s.label} ({counts[s.key]})
+          </button>
+        ))}
+      </div>
+
+      {/* ── THREADS ── */}
+      {activeSection==="threads"&&(
+        useSupaStash?(
+          <div className="card">
+            <h2>Threads ({counts.threads})</h2>
+            {stash.threads.length===0
+              ?<p className="muted">No threads yet — use the Match tab to find and add threads.</p>
+              :stash.threads.map((item,i)=>{
+                // Support both thread_library (Isacord) and thread_library_all (all brands)
+                const th = item.thread_library_all || item.thread_library;
+                if(!th) return null;
+                const hex = th.hex_color || "#CCC";
+                const spools = item.spool_count || 1;
+                const brandLabel = item.thread_library_all ? `${th.brand} · ` : "";
+                return(
+                  <div key={i} className="thread-row" style={{borderBottom:"1px solid var(--border-teal)",paddingBottom:8,marginBottom:8}}>
+                    <div className="swatch" style={{background:hex}}/>
+                    <div>
+                      <div className="thread-name">{th.color_code} — {th.color_name}</div>
+                      <div className="muted">{brandLabel}{spools} {spools===1?"spool":"spools"}</div>
+                    </div>
+                  </div>
+                );
+              })
+            }
+          </div>
+        ):(
+          <>
+            <div className="card">
+              <h2>Shopping List</h2>
+              {mergedShoppingList.length===0
+                ?<p className="muted">Your shopping list is empty.</p>
+                :mergedShoppingList.map(item=>(
+                  <div key={item.id} className="sub-card" style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                    {item.hex_color&&<div style={{width:36,height:36,borderRadius:"50%",flexShrink:0,background:item.hex_color,border:"2px solid rgba(255,255,255,0.6)",boxShadow:"0 2px 6px rgba(0,0,0,0.15)"}}/>}
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:700,fontSize:13}}>{item.brand&&`${item.brand} `}{item.code} — {item.name}</div>
+                      {item.fiber_type&&<div className="muted" style={{fontSize:11}}>{item.fiber_type} {item.weight}</div>}
+                      <div className="muted" style={{fontSize:11}}>Qty: {item.qty}</div>
+                    </div>
+                    <button className="btn" style={{fontSize:11,padding:"4px 8px",color:"#C0392B",borderColor:"#C0392B",flexShrink:0}} onClick={()=>removeShoppingItem(item.id)}>✕</button>
+                  </div>
+                ))
+              }
+            </div>
+            {threads.map(thread=>(
+              <div key={thread.id} className="card">
+                <div className="thread-row">
+                  <div className="swatch" style={{background:thread.swatch}}/>
+                  <div>
+                    <div className="thread-name">{thread.name} {thread.isacord?`(${thread.isacord})`:""}</div>
+                    <div className="muted">{thread.spools} spool(s) · {thread.spoolSize} · Target {thread.inventoryTarget||0}</div>
+                  </div>
+                </div>
+                <label>Inventory Target<input className="input" type="number" value={thread.inventoryTarget||0} onChange={e=>updateInventoryTarget(thread.id,e.target.value)}/></label>
+                <div className="button-row">
+                  <button className="btn" onClick={()=>updateSpools(thread.id,1)}>+ Add Spool</button>
+                  <button className="btn" onClick={()=>updateSpools(thread.id,-1)}>- Remove</button>
+                  <button className="btn" onClick={()=>addManualShoppingItem(thread)}>Shopping List</button>
+                </div>
+              </div>
+            ))}
+          </>
+        )
+      )}
+
+      {/* ── RULERS ── */}
+      {activeSection==="rulers"&&(
+        <div className="card">
+          <h2>Rulers ({counts.rulers})</h2>
+          {stash.rulers.length===0
+            ?<p className="muted">No rulers yet — browse in More → Rulers.</p>
+            :stash.rulers.map((item,i)=>{
+              const r=item.ruler_library;if(!r)return null;
+              return<div key={i} className="sub-card"><b>{r.brand} — {r.model}</b><p className="muted">{r.shape} · {r.size_inches} · {r.material}</p></div>;
+            })
+          }
+        </div>
+      )}
+
+      {/* ── MACHINES ── */}
+      {activeSection==="machines"&&(
+        <MachineStashSection machines={stash.machines} supabase={supabase} userId={userId} onRefresh={fetchAll}/>
+      )}
+
+      {/* ── ACCUQUILT DIES ── */}
+      {activeSection==="dies"&&(
+        <div className="card">
+          <h2>AccuQuilt Dies ({counts.dies})</h2>
+          {stash.dies.length===0
+            ?<p className="muted">No dies yet — browse in More → AccuQuilt.</p>
+            :stash.dies.map((item,i)=>{
+              const d=item.machine_library;if(!d)return null;
+              return<div key={i} className="sub-card"><b>{d.model}</b><p className="muted">AccuQuilt · {d.category}</p></div>;
+            })
+          }
+        </div>
+      )}
+
+      {/* ── FEET ── */}
+      {activeSection==="feet"&&(
+        <div className="card">
+          <h2>Presser Feet ({counts.feet})</h2>
+          {stash.feet.length===0
+            ?<p className="muted">No feet yet — browse in More → Presser Feet.</p>
+            :stash.feet.map((item,i)=>{
+              const f=item.feet_library;if(!f)return null;
+              const c=catColors[f.category]||catColors.General;
+              return(
+                <div key={i} className="sub-card" style={{display:"flex",alignItems:"center",gap:10}}>
+                  <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:8,background:c.bg,color:c.text,flexShrink:0}}>{f.category}</span>
+                  <div><div className="thread-name">{f.foot_name}</div><div className="muted">{f.brand} · {f.shank_type}</div></div>
+                </div>
+              );
+            })
+          }
+        </div>
+      )}
+
+      {/* ── ACCESSORIES ── */}
+      {activeSection==="accessories"&&(
+        <div className="card">
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+            <h2 style={{margin:0}}>Accessories ({counts.accessories})</h2>
+            <button className="btn active" style={{fontSize:12}} onClick={()=>setShowAccForm(v=>!v)}>
+              {showAccForm?"Cancel":"+ Add"}
+            </button>
+          </div>
+          {showAccForm&&(
+            <div className="sub-card" style={{marginBottom:12}}>
+              <label style={{fontSize:12}}>Item name
+                <input className="input" value={accForm.name} onChange={e=>setAccForm({...accForm,name:e.target.value})}
+                  placeholder="e.g. Seam ripper, bobbins, needles, glue pen…"/>
+              </label>
+              <label style={{fontSize:12}}>Quantity
+                <input className="input" type="number" value={accForm.quantity} onChange={e=>setAccForm({...accForm,quantity:e.target.value})} style={{marginBottom:8}}/>
+              </label>
+              <label style={{fontSize:12}}>Notes
+                <input className="input" value={accForm.notes} onChange={e=>setAccForm({...accForm,notes:e.target.value})} placeholder="Brand, size, color, location…"/>
+              </label>
+              <button className="btn active" style={{width:"100%"}} onClick={saveAccessory}>Save Accessory</button>
+            </div>
+          )}
+          {stash.accessories.length===0&&!showAccForm&&(
+            <p className="muted">Track any sewing accessories here — bobbins, needles, seam rippers, glue pens, marking tools, anything that doesn't fit elsewhere.</p>
+          )}
+          {stash.accessories.map(acc=>(
+            <div key={acc.id} className="sub-card" style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+              <div>
+                <b>{acc.name}</b>
+                <div className="muted">Qty: {acc.quantity}</div>
+                {acc.notes&&<div className="muted" style={{fontSize:12}}>{acc.notes}</div>}
+              </div>
+              <button className="btn" style={{fontSize:11,padding:"4px 8px",color:"#C0392B",borderColor:"#C0392B",flexShrink:0}} onClick={()=>removeAccessory(acc.id)}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// MACHINES BROWSER
+// ─────────────────────────────────────────────────────────────
+function MachinesBrowser({ supabase, userId }) {
+  const [machines,setMachines]=useState([]);
+  const [owned,setOwned]=useState({});
+  const [filter,setFilter]=useState("All");
+  const [search,setSearch]=useState("");
+  const [loading,setLoading]=useState(true);
+  const types=["All","Sewing","Quilting","Embroidery","Serger","Longarm","Vintage","Fabric Cutter"];
+
+  useEffect(()=>{ if(!supabase)return; fetchMachines(); if(userId)fetchOwned(); },[supabase,userId]);
+
+  async function fetchMachines(){
+    setLoading(true);
+    const{data}=await supabase.from("machine_library").select("*").order("brand").order("model");
+    setMachines(data||[]);setLoading(false);
+  }
+  async function fetchOwned(){
+    const{data}=await supabase.from("user_machines").select("machine_id").eq("user_id",userId);
+    if(data){const m={};data.forEach(r=>{m[r.machine_id]=true;});setOwned(m);}
+  }
+  async function toggleMachine(machineId){
+    if(!userId||!supabase)return;
+    if(owned[machineId]){
+      const{error}=await supabase.from("user_machines")
+        .delete().eq("user_id",userId).eq("machine_id",machineId);
+      if(error){console.error("Remove machine error:",error);return;}
+      setOwned(prev=>{const n={...prev};delete n[machineId];return n;});
+    }else{
+      const{error}=await supabase.from("user_machines")
+        .insert({user_id:userId,machine_id:machineId})
+        ;
+      if(error){
+        // If already exists (duplicate), just mark as owned
+        if(error.code==="23505"){
+          setOwned(prev=>({...prev,[machineId]:true}));
+        } else {
+          console.error("Add machine error:",error);
+        }
+        return;
+      }
+      setOwned(prev=>({...prev,[machineId]:true}));
+    }
+  }
+
+  const filtered=machines.filter(m=>{
+    const matchType=filter==="All"||m.type===filter||m.category?.includes(filter);
+    const q=normalized(search);
+    const matchSearch=!q||normalized(m.brand).includes(q)||normalized(m.model).includes(q)||normalized(m.category).includes(q);
+    return matchType&&matchSearch;
+  });
+
+  if(loading)return<div className="card"><p className="muted">Loading machine library…</p></div>;
+  return(
+    <div>
+      <div className="card" style={{padding:"12px 16px"}}>
+        <h2 style={{marginBottom:10}}>Machine Library ({machines.length})</h2>
+        <input className="input" style={{marginBottom:8}} placeholder="Search brand, model…" value={search} onChange={e=>setSearch(e.target.value)}/>
+        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+          {types.map(ty=><button key={ty} className={`btn ${filter===ty?"active":""}`} onClick={()=>setFilter(ty)} style={{fontSize:11,padding:"4px 8px"}}>{ty}</button>)}
+        </div>
+      </div>
+      <div className="card" style={{padding:"8px 12px"}}><p className="muted">{filtered.length} machines — tap to add to your stash</p></div>
+      {filtered.map(machine=>{
+        const isOwned=owned[machine.id];
+        return(
+          <div key={machine.id} className="card" style={{borderColor:isOwned?"#1A5C1A":undefined}}>
+            <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+              <div style={{flex:1}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}>
+                  <span className="type-badge">{machine.type}</span>
+                  {machine.category&&<span className="muted" style={{fontSize:11}}>{machine.category}</span>}
+                </div>
+                <div className="thread-name">{machine.brand} {machine.model}</div>
+                {machine.throat_space&&<div className="muted">{machine.throat_space}" throat</div>}
+                {machine.fun_fact&&<p style={{fontSize:12,margin:"6px 0 0",color:"#5C4A1E",lineHeight:1.4}}>{machine.fun_fact.slice(0,120)}{machine.fun_fact.length>120?"…":""}</p>}
+              </div>
+              <button className={`btn ${isOwned?"active":""}`} style={{flexShrink:0}} onClick={()=>toggleMachine(machine.id)}>{isOwned?"✓ Owned":"+ Add"}</button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// ACCUQUILT BROWSER
+// ─────────────────────────────────────────────────────────────
+function AccuQuiltBrowser({ supabase, userId }) {
+  const [dies,setDies]=useState([]);
+  const [owned,setOwned]=useState({});
+  const [loading,setLoading]=useState(true);
+  useEffect(()=>{ if(!supabase)return; fetchDies(); if(userId)fetchOwned(); },[supabase,userId]);
+  async function fetchDies(){ setLoading(true); const{data}=await supabase.from("machine_library").select("*").eq("brand","AccuQuilt").order("category").order("model"); setDies(data||[]); setLoading(false); }
+  async function fetchOwned(){ const{data}=await supabase.from("user_dies").select("machine_id").eq("user_id",userId); if(data){const m={};data.forEach(r=>{m[r.machine_id]=true;});setOwned(m);} }
+  async function toggleDie(machineId){
+    if(!userId||!supabase)return;
+    if(owned[machineId]){ await supabase.from("user_dies").delete().eq("user_id",userId).eq("machine_id",machineId); setOwned(prev=>{const n={...prev};delete n[machineId];return n;}); }
+    else{ await supabase.from("user_dies").upsert({user_id:userId,machine_id:machineId,quantity:1},{onConflict:"user_id,machine_id"}); setOwned(prev=>({...prev,[machineId]:true})); }
+  }
+  if(loading)return<div className="card"><p className="muted">Loading AccuQuilt library…</p></div>;
+  const grouped=dies.reduce((acc,d)=>{ const cat=d.category||"Other"; if(!acc[cat])acc[cat]=[]; acc[cat].push(d); return acc; },{});
+  return(
+    <div>
+      <div className="card"><h2>AccuQuilt Cutters & Dies</h2><p className="muted" style={{fontSize:13}}>Tap to add to your stash.</p></div>
+      {Object.entries(grouped).map(([cat,items])=>(
+        <div key={cat}>
+          <div className="section-label">{cat}</div>
+          {items.map(die=>{
+            const isOwned=owned[die.id];
+            return(
+              <div key={die.id} className="card" style={{borderColor:isOwned?"#1A5C1A":undefined}}>
+                <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                  <div style={{flex:1}}>
+                    <div className="thread-name">{die.model}</div>
+                    {die.fun_fact&&<p style={{fontSize:12,margin:"4px 0 0",color:"#5C4A1E",lineHeight:1.4}}>{die.fun_fact.slice(0,140)}{die.fun_fact.length>140?"…":""}</p>}
+                  </div>
+                  <button className={`btn ${isOwned?"active":""}`} style={{flexShrink:0}} onClick={()=>toggleDie(die.id)}>{isOwned?"✓ Owned":"+ Add"}</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ))}
+      {dies.length===0&&<div className="card"><p className="muted">Run step 26 SQL to load AccuQuilt data.</p></div>}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// RULER BROWSER
+// ─────────────────────────────────────────────────────────────
+function RulerBrowser({ supabase, userId }) {
+  const [rulers,setRulers]=useState([]);
+  const [owned,setOwned]=useState({});
+  const [loading,setLoading]=useState(true);
+  const [search,setSearch]=useState("");
+  useEffect(()=>{ if(!supabase)return; fetchRulers(); if(userId)fetchOwned(); },[supabase,userId]);
+  async function fetchRulers(){ setLoading(true); const{data}=await supabase.from("ruler_library").select("*").order("brand").order("model"); setRulers(data||[]); setLoading(false); }
+  async function fetchOwned(){ const{data}=await supabase.from("user_rulers").select("ruler_id").eq("user_id",userId); if(data){const m={};data.forEach(r=>{m[r.ruler_id]=true;});setOwned(m);} }
+  async function toggleRuler(rulerId){
+    if(!userId||!supabase)return;
+    if(owned[rulerId]){ await supabase.from("user_rulers").delete().eq("user_id",userId).eq("ruler_id",rulerId); setOwned(prev=>{const n={...prev};delete n[rulerId];return n;}); }
+    else{ await supabase.from("user_rulers").upsert({user_id:userId,ruler_id:rulerId,quantity:1},{onConflict:"user_id,ruler_id"}); setOwned(prev=>({...prev,[rulerId]:true})); }
+  }
+  const filtered=rulers.filter(r=>!search||normalized(r.brand).includes(normalized(search))||normalized(r.model).includes(normalized(search))||normalized(r.shape).includes(normalized(search)));
+  if(loading)return<div className="card"><p className="muted">Loading ruler library…</p></div>;
+  return(
+    <div>
+      <div className="card" style={{padding:"12px 16px"}}>
+        <h2 style={{marginBottom:10}}>Ruler Library ({rulers.length})</h2>
+        <input className="input" placeholder="Search brand, shape…" value={search} onChange={e=>setSearch(e.target.value)}/>
+      </div>
+      <div className="card" style={{padding:"8px 12px"}}><p className="muted">{filtered.length} rulers — tap to add to your stash</p></div>
+      {filtered.map(ruler=>{
+        const isOwned=owned[ruler.id];
+        return(
+          <div key={ruler.id} className="card" style={{borderColor:isOwned?"#1A5C1A":undefined}}>
+            <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+              <div style={{flex:1}}>
+                <div className="thread-name">{ruler.brand} — {ruler.model}</div>
+                <div className="muted">{ruler.shape} · {ruler.size_inches} · {ruler.material}</div>
+                {ruler.description&&<p style={{fontSize:12,margin:"4px 0 0",color:"#5C4A1E",lineHeight:1.4}}>{ruler.description}</p>}
+              </div>
+              <button className={`btn ${isOwned?"active":""}`} style={{flexShrink:0}} onClick={()=>toggleRuler(ruler.id)}>{isOwned?"✓ Owned":"+ Add"}</button>
+            </div>
+          </div>
+        );
+      })}
+      {rulers.length===0&&<div className="card"><p className="muted">No ruler data found. Check the ruler_library table in Supabase.</p></div>}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// FEET BROWSER
+// ─────────────────────────────────────────────────────────────
+function FeetBrowser({ supabase, userId }) {
+  const [feet,setFeet]=useState([]);
+  const [owned,setOwned]=useState({});
+  const [filter,setFilter]=useState("All");
+  const [loading,setLoading]=useState(true);
+  const categories=["All","Quilting","Garment","Embroidery","Specialty","Serging","General"];
+  const catColors={Quilting:{bg:"#E8F0FF",text:"#0047AB"},Garment:{bg:"#E0F5EC",text:"#1A6B4A"},Embroidery:{bg:"#F3EAF8",text:"#6B3FA0"},Serging:{bg:"#FFF8E1",text:"#5C4A1E"},Specialty:{bg:"#FDECEA",text:"#C0392B"},General:{bg:"#F5F5F5",text:"#888"}};
+  useEffect(()=>{ if(!supabase)return; fetchFeet(); if(userId)fetchOwned(); },[supabase,userId]);
+  async function fetchFeet(){ setLoading(true); const{data}=await supabase.from("feet_library").select("*").order("category").order("foot_name"); setFeet(data||[]); setLoading(false); }
+  async function fetchOwned(){ const{data}=await supabase.from("user_feet").select("foot_id").eq("user_id",userId); if(data){const m={};data.forEach(r=>{m[r.foot_id]=true;});setOwned(m);} }
+  async function toggleFoot(footId){
+    if(!userId||!supabase)return;
+    if(owned[footId]){ await supabase.from("user_feet").delete().eq("user_id",userId).eq("foot_id",footId); setOwned(prev=>{const n={...prev};delete n[footId];return n;}); }
+    else{ await supabase.from("user_feet").upsert({user_id:userId,foot_id:footId,quantity:1},{onConflict:"user_id,foot_id"}); setOwned(prev=>({...prev,[footId]:true})); }
+  }
+  const filtered=filter==="All"?feet:feet.filter(f=>f.category===filter);
+  if(loading)return<div className="card"><p className="muted">Loading feet library…</p></div>;
+  return(
+    <div>
+      <div style={{display:"flex",gap:5,flexWrap:"wrap",padding:"0 0 8px"}}>
+        {categories.map(cat=><button key={cat} className={`btn ${filter===cat?"active":""}`} onClick={()=>setFilter(cat)} style={{fontSize:11,padding:"4px 8px"}}>{cat}</button>)}
+      </div>
+      <div className="card" style={{padding:"8px 12px"}}><p className="muted">{filtered.length} feet — tap to add to your stash</p></div>
+      {filtered.map(foot=>{
+        const c=catColors[foot.category]||catColors.General;const isOwned=owned[foot.id];
+        return(
+          <div key={foot.id} className="card" style={{borderColor:isOwned?"#1A5C1A":undefined}}>
+            <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+              <div style={{flex:1}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                  <span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:8,background:c.bg,color:c.text}}>{foot.category}</span>
+                  {foot.foot_number&&<span className="muted" style={{fontSize:11}}>#{foot.foot_number}</span>}
+                </div>
+                <div className="thread-name">{foot.foot_name}</div>
+                <div className="muted">{foot.brand} · {foot.shank_type}</div>
+                {foot.description&&<p style={{fontSize:12,margin:"4px 0 0",color:"#5C4A1E",lineHeight:1.4}}>{foot.description}</p>}
+                {foot.best_for&&foot.best_for.length>0&&(
+                  <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:6}}>
+                    {foot.best_for.slice(0,4).map((u,i)=><span key={i} style={{fontSize:10,padding:"1px 5px",background:"#F5F5F5",color:"#888",borderRadius:4}}>{u}</span>)}
+                  </div>
+                )}
+              </div>
+              <button className={`btn ${isOwned?"active":""}`} style={{flexShrink:0}} onClick={()=>toggleFoot(foot.id)}>{isOwned?"✓ Owned":"+ Add"}</button>
+            </div>
+          </div>
+        );
+      })}
+      {feet.length===0&&<div className="card"><p className="muted">Run steps 30+31 SQL to load feet data.</p></div>}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// BARCODE SCANNER
+// ─────────────────────────────────────────────────────────────
+function BarcodeScanner({ supabase, userId, onAddToStash, onColorMatch }) {
+  const [scanning,setScanning]=useState(false);
+  const [result,setResult]=useState(null);
+  const [error,setError]=useState(null);
+  const [adding,setAdding]=useState(false);
+  const videoRef=useRef(null);const streamRef=useRef(null);const rafRef=useRef(null);const detRef=useRef(null);
+  async function startScan(){
+    setError(null);setResult(null);
+    if(!("BarcodeDetector" in window)){setError("Barcode scanning requires Chrome on Android or desktop Chrome.");return;}
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+      streamRef.current=stream;
+      if(videoRef.current){videoRef.current.srcObject=stream;await videoRef.current.play();}
+      detRef.current=new window.BarcodeDetector({formats:["ean_13","ean_8","upc_a","upc_e","code_128","code_39","itf","qr_code"]});
+      setScanning(true);loop();
+    }catch{setError("Camera access denied — check browser permissions.");}
+  }
+  function loop(){
+    if(!videoRef.current||!detRef.current)return;
+    rafRef.current=requestAnimationFrame(async()=>{
+      try{ const barcodes=await detRef.current.detect(videoRef.current); if(barcodes.length>0){stopScan();await handleBarcode(barcodes[0].rawValue);}else{loop();} }catch{loop();}
+    });
+  }
+  function stopScan(){ if(rafRef.current)cancelAnimationFrame(rafRef.current); if(streamRef.current){streamRef.current.getTracks().forEach(t=>t.stop());streamRef.current=null;} setScanning(false); }
+  async function handleBarcode(barcode){
+    if(!supabase){setResult({barcode,found:false});return;}
+    try{
+      const{data}=await supabase.from("thread_barcodes").select("*,thread_library_all(brand,brand_key,color_code,color_name,hex_color,fiber_type,weight,nearest_isacord)").eq("barcode",barcode).maybeSingle();
+      if(data?.thread_library_all){setResult({barcode,thread:data.thread_library_all,confirmed:data.confirmed_count,found:true});await supabase.rpc("increment_barcode_confirmation",{p_barcode:barcode});}
+      else{setResult({barcode,found:false});}
+    }catch{setResult({barcode,found:false});}
+  }
+  async function addToStash(){
+    if(!result?.thread||!userId||!supabase)return;
+    setAdding(true);
+    try{
+      const{data:lib}=await supabase.from("thread_library").select("id").eq("color_code",result.thread.color_code).maybeSingle();
+      if(lib){await supabase.from("user_inventory").upsert({user_id:userId,thread_id:lib.id,quantity:1},{onConflict:"user_id,thread_id"});}
+      onAddToStash&&onAddToStash(result.thread);setResult(null);
+    }catch(e){console.error(e);}
+    setAdding(false);
+  }
+  useEffect(()=>()=>stopScan(),[]);
+  return(
+    <div>
+      {!scanning&&!result&&<button className="btn active" style={{width:"100%",marginBottom:8}} onClick={startScan}>📷 Scan Thread Barcode</button>}
+      {error&&<div className="message" style={{borderColor:"#C0392B",color:"#C0392B",background:"#FDECEA"}}>{error}</div>}
+      {scanning&&(
+        <div style={{position:"relative",marginBottom:8}}>
+          <video ref={videoRef} style={{width:"100%",borderRadius:10}} playsInline muted/>
+          <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
+            <div style={{width:"70%",height:"30%",border:"2.5px solid #F5C400",borderRadius:10,boxShadow:"0 0 0 9999px rgba(0,0,0,0.45)"}}/>
+          </div>
+          <button className="btn" style={{position:"absolute",top:8,right:8}} onClick={stopScan}>✕ Cancel</button>
+        </div>
+      )}
+      {result?.found&&result.thread&&(
+        <div className="card" style={{borderColor:"#1A5C1A"}}>
+          <div className="thread-row">
+            {result.thread.hex_color&&<div className="swatch" style={{background:result.thread.hex_color}}/>}
+            <div>
+              <div style={{fontSize:11,color:"#1A5C1A",fontWeight:700}}>✓ Thread identified!</div>
+              <div className="thread-name">{result.thread.brand} {result.thread.color_code} — {result.thread.color_name}</div>
+              <div className="muted">{result.thread.fiber_type} · {result.thread.weight} · {result.confirmed} confirmed</div>
+            </div>
+          </div>
+          <div className="button-row">
+            <button className="btn active" onClick={addToStash} disabled={adding}>{adding?"Adding…":"+ Add to Stash"}</button>
+            <button className="btn" onClick={()=>setResult(null)}>Dismiss</button>
+          </div>
+        </div>
+      )}
+      {result&&!result.found&&(
+        <div className="card">
+          <div className="thread-name">Barcode not in database yet</div>
+          <div className="muted" style={{marginBottom:8}}>Barcode: {result.barcode}</div>
+          <p style={{marginBottom:10}}>Use Camera Match to identify this thread — barcode gets saved for everyone!</p>
+          <div className="button-row">
+            <button className="btn active" onClick={()=>onColorMatch&&onColorMatch(result.barcode)}>📷 Color Match</button>
+            <button className="btn" onClick={()=>setResult(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// MAIN APP
+// ─────────────────────────────────────────────────────────────
+export default function App({ supabase, user }) {
+  const userId = user?.id||null;
+
+  // ── State ─────────────────────────────────────────────────
+  const [tab, setTab]                 = useState("home");
+  const [subTab, setSubTab]           = useState("thread"); // match sub-tabs
+  const [moreSubTab, setMoreSubTab]   = useState("machines"); // more sub-tabs
+  const [threads, setThreads]         = useState(starterThreads);
+  const [supaAllThreads, setSupaAllThreads] = useState([]); // thread_library_all — all 4,200+ colors
+  const [form, setForm]               = useState(emptyForm);
+  const [message, setMessage]         = useState("");
+  const [settings, setSettings]       = useState(()=>{ const saved=localStorage.getItem("hh_settings"); return saved?JSON.parse(saved):{showBarcodes:true,showWeights:true,autoAddZeroInventoryToShoppingList:true,defaultMatchMode:"thread",defaultBrand:"Isacord",crossRefBrand:""}; });
+  const [syncMeta, setSyncMeta]       = useState({ appVersion:APP_VERSION,libraryVersion:"1.0.0",remoteLibraryVersion:"1.0.0",status:"Ready",lastSynced:"Never",hasUpdate:false });
+  const [lang, setLang]               = useState(()=>localStorage.getItem("hh_lang")||"en-US");
+  useEffect(()=>{localStorage.setItem("hh_lang",lang);},[lang]);
+  useEffect(()=>{localStorage.setItem("hh_settings",JSON.stringify(settings));},[settings]);
+  // Apply default brand from settings on mount
+  useEffect(()=>{ if(settings.defaultBrand) setMatchBrand(settings.defaultBrand); },[]);
+
+  // Match state
+  const [matchBrand, setMatchBrand]           = useState("Isacord");
+  const [matchQuery, setMatchQuery]           = useState("");
+  const [colorFamilyKey, setColorFamilyKey]   = useState("All"); // ALWAYS an English key
+  const [cameraImage, setCameraImage]         = useState(null);
+  const [cameraSample, setCameraSample]       = useState(null);
+  const [pendingBarcode, setPendingBarcode]   = useState(null);
+  const [showAddThread, setShowAddThread]     = useState(false);
+
+  // Shopping / projects
+  const [shoppingList, setShoppingList]                   = useState([]);
+  const [projects, setProjects]                           = useState([{id:"proj-1",name:"Autumn Leaves Quilt",status:"Planning",notes:"",requiredThreads:[]}]);
+  const [selectedProjectId, setSelectedProjectId]         = useState("proj-1");
+  const [showNewProject, setShowNewProject]               = useState(false);
+  const [newProjectForm, setNewProjectForm]               = useState(emptyProject);
+  const [projectEntryMode, setProjectEntryMode]           = useState("manual");
+  const [projectThreadInput, setProjectThreadInput]       = useState("");
+  const [projectScanInput, setProjectScanInput]           = useState("");
+
+  // ── Load cache ────────────────────────────────────────────
+  useEffect(()=>{
+    try{
+      const cached=localStorage.getItem(LOCAL_LIBRARY_KEY);
+      const meta=localStorage.getItem(LOCAL_SYNC_META);
+      if(cached){const p=JSON.parse(cached);if(Array.isArray(p))setThreads(p);}
+      if(meta){const p=JSON.parse(meta);setSyncMeta(c=>({...c,...p}));}
+    }catch(e){console.error(e);}
+  },[]);
+
+  // ── Load ALL brands from thread_library_all ────────────────
+  // Paginates in batches of 1000 to get all 4,200+ rows.
+  // Falls back to thread_library (Isacord only) if blocked.
+  useEffect(()=>{
+    if(!supabase)return;
+    async function loadAllThreads(){
+      // Try thread_library_all first
+      let allRows=[]; let from=0; const pageSize=1000;
+      while(true){
+        const{data,error}=await supabase
+          .from("thread_library_all")
+          .select("id,brand,brand_key,color_code,color_name,hex_color,fiber_type,weight,thread_type,nearest_isacord")
+          .order("color_name")
+          .range(from,from+pageSize-1);
+        if(error){console.error("thread_library_all error:",error.message);break;}
+        if(!data||data.length===0)break;
+        allRows=[...allRows,...data];
+        if(data.length<pageSize)break;
+        from+=pageSize;
+      }
+      if(allRows.length>0){
+        console.log(`Loaded ${allRows.length} threads from thread_library_all`);
+        setSupaAllThreads(allRows);
+        return;
+      }
+      // Fallback: thread_library with renamed columns (post step 35)
+      console.warn("thread_library_all empty/blocked, falling back to thread_library");
+      const{data:iData,error:iErr}=await supabase
+        .from("thread_library")
+        .select("id,color_code,color_name,hex_color,swatch")
+        .order("color_name");
+      if(iErr){console.error("thread_library fallback error:",iErr.message);return;}
+      if(iData&&iData.length>0){
+        const shaped=iData.map(t=>({
+          id:t.id, brand:"Isacord", brand_key:"isacord",
+          color_code:t.color_code, color_name:t.color_name,
+          hex_color:t.hex_color||t.swatch||null,
+          fiber_type:"Polyester", weight:"40 wt",
+          thread_type:"machine_embroidery", nearest_isacord:t.color_code,
+        }));
+        console.log(`Fallback: loaded ${shaped.length} Isacord colors`);
+        setSupaAllThreads(shaped);
+      }
+    }
+    loadAllThreads();
+  },[supabase]);
+
+  // ── Derived ───────────────────────────────────────────────
+  const displayThreads = supaAllThreads.length>0 ? supaAllThreads : threads;
+  const lowStockCount  = useMemo(()=>threads.filter(t=>t.spools<=Math.max(1,(t.inventoryTarget||0)-1)).length,[threads]);
+  const belowTargetCount = useMemo(()=>threads.filter(t=>(t.spools||0)<(t.inventoryTarget||0)).length,[threads]);
+
+  const autoShoppingItems = useMemo(()=>{
+    if(!settings.autoAddZeroInventoryToShoppingList)return[];
+    return threads.filter(t=>(t.spools||0)===0).map(thread=>({
+      id:`auto-${thread.id}`,threadId:thread.id,name:thread.name,
+      primary:thread.brands?.primary||thread.brands?.isacord||"—",
+      isacord:thread.isacord,barcode:thread.barcode,spoolSize:thread.spoolSize,
+      inventoryTarget:thread.inventoryTarget,qty:1,source:"auto"
+    }));
+  },[threads,settings.autoAddZeroInventoryToShoppingList]);
+
+  const mergedShoppingList = useMemo(()=>{
+    const map=new Map();
+    [...autoShoppingItems,...shoppingList].forEach(item=>{
+      const key=`${item.threadId}-${item.spoolSize}`;
+      if(!map.has(key))map.set(key,{...item});
+      else{const e=map.get(key);map.set(key,{...e,qty:e.qty+item.qty,source:e.source===item.source?e.source:"mixed"});}
+    });
+    return Array.from(map.values());
+  },[autoShoppingItems,shoppingList]);
+
+  const selectedProject = useMemo(()=>projects.find(p=>p.id===selectedProjectId)||projects[0],[projects,selectedProjectId]);
+
+  // ── Thread match filter ──────────────────────────────────
+  // Uses thread_library_all for all brands (consistent behavior across every brand)
+  // Results always sorted alphabetically by color_name
+  const filteredMatchResults = useMemo(()=>{
+    const q = normalized(matchQuery).trim();
+    const hasFilter = colorFamilyKey !== "All";
+    const hasQuery  = q.length > 0;
+
+    // Require at least a color family OR a search query
+    if(!hasFilter && !hasQuery) return [];
+
+    // Fabric search — uses local threads (they have fabric brand cross-reference fields)
+    if(subTab==="fabric"){
+      const brandKey=fabricBrands.find(([label])=>label===matchBrand)?.[1]||matchBrand;
+      return [...threads].filter(thread=>
+        normalized(thread.fabrics?.[brandKey]).includes(q)||normalized(thread.family).includes(q)
+      ).sort((a,b)=>a.name.localeCompare(b.name)).slice(0,80);
+    }
+
+    // Thread search — use thread_library_all if available, else local fallback
+    if(supaAllThreads.length > 0){
+      // Get the brand_key for the selected brand
+      const bk = brandKeyMap[matchBrand] || normalized(matchBrand).replace(/[^a-z0-9]/g,"_");
+
+      // Build Isacord hex map for nearest_isacord fallback
+      // thread_library columns: isacord (code), hex or swatch (color)
+      // Build hex map from Isacord entries in thread_library_all
+      const isacordHexMap = {};
+      supaAllThreads.forEach(t => {
+        if(t.brand_key === "isacord" && t.color_code && t.hex_color)
+          isacordHexMap[t.color_code] = t.hex_color;
+      });
+
+      let results = supaAllThreads.filter(thread=>{
+        // Filter by brand
+        if(thread.brand_key !== bk) return false;
+
+        // Filter by search query if present
+        if(hasQuery){
+          const matchesQuery = normalized(thread.color_name).includes(q) ||
+                               normalized(thread.color_code).includes(q) ||
+                               normalized(thread.brand).includes(q);
+          if(!matchesQuery) return false;
+        }
+
+        // Filter by color family if selected
+        if(hasFilter){
+          // Use thread's own hex_color, or fall back to nearest_isacord hex
+          const effectiveHex = thread.hex_color ||
+            (thread.nearest_isacord ? isacordHexMap[thread.nearest_isacord] : null);
+          const threadWithHex = {...thread, hex_color: effectiveHex};
+          if(hexToFamilyKey(threadWithHex) !== colorFamilyKey) return false;
+        }
+
+        return true;
+      });
+
+      // Already sorted by color_name from Supabase query, but re-sort to be safe
+      results.sort((a,b)=>a.color_name.localeCompare(b.color_name));
+      return results.slice(0,100);
+    }
+
+    // Local fallback (no Supabase) — use local thread-library.json
+    const brandKey = threadBrands.find(([label])=>label===matchBrand)?.[1]||"isacord";
+    let results = threads.filter(thread=>{
+      if(hasQuery){
+        const matchesQuery = [thread.name, thread.isacord, thread.barcode,
+                              thread.brands?.[brandKey], thread.brands?.primary]
+                             .some(v=>normalized(v).includes(q));
+        if(!matchesQuery) return false;
+      }
+      if(hasFilter){
+        if(hexToFamilyKey(thread) !== colorFamilyKey) return false;
+      }
+      return true;
+    });
+    results.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+    return results.slice(0,100);
+  },[supaAllThreads,threads,matchQuery,subTab,matchBrand,colorFamilyKey]);
+
+  const cameraMatches = useMemo(()=>{
+    if(!cameraSample)return[];
+    const sampleRgb={r:cameraSample.r,g:cameraSample.g,b:cameraSample.b};
+    return [...displayThreads]
+      .map(thread=>({thread,dist:colorDistance(sampleRgb,hexToRgb(thread.hex_color||thread.hex||thread.swatch))}))
+      .sort((a,b)=>a.dist-b.dist).slice(0,5).map(item=>item.thread);
+  },[cameraSample,displayThreads]);
+
+  // ── Persistence ───────────────────────────────────────────
+  const persistLibrary=nextThreads=>{setThreads(nextThreads);localStorage.setItem(LOCAL_LIBRARY_KEY,JSON.stringify(nextThreads));};
+  const persistSyncMeta=nextMeta=>{setSyncMeta(nextMeta);localStorage.setItem(LOCAL_SYNC_META,JSON.stringify(nextMeta));};
+
+  // ── Thread actions ────────────────────────────────────────
+  const addThread=()=>{
+    if(!form.name.trim()){setMessage("Please enter a thread name.");return;}
+    const spools=Math.max(0,Number(form.spools||0));
+    const inventoryTarget=Math.max(0,Number(form.inventoryTarget||0));
+    const newThread={
+      id:Date.now(),name:form.name.trim(),family:form.family||"Unsorted",
+      isacord:form.isacord.trim(),barcode:form.barcode.trim(),weight:form.weight.trim()||"40 wt",
+      inventoryTarget,spools,spoolSize:form.spoolSize,owned:spools>0,
+      lowStock:spools<=Math.max(1,inventoryTarget-1),swatch:form.swatch,hex:form.swatch,rgb:"",
+      brands:{primary:form.isacord?`Isacord ${form.isacord}`:form.name.trim(),isacord:form.isacord?`Isacord ${form.isacord}`:"",glide:"",floriani:"",madeira:"",sulky:"",aurifil:"",omni:"",kingTut:"",soFine:"",gutermann:"",mettler:"",robisonAnton:"",coatsClark:""},
+      fabrics:{kona:"",bella:"",agf:"",freespirit:"",michaelMiller:"",windham:"",clothworks:"",hoffman:""}
+    };
+    persistLibrary([newThread,...threads]);
+    setForm(emptyForm);setMessage(`${newThread.name} added.`);setShowAddThread(false);
+  };
+  const updateSpools=(id,delta)=>{
+    persistLibrary(threads.map(thread=>{
+      if(thread.id!==id)return thread;
+      const spools=Math.max(0,thread.spools+delta);
+      return{...thread,spools,owned:spools>0,lowStock:spools<=Math.max(1,(thread.inventoryTarget||0)-1)};
+    }));
+  };
+  const updateInventoryTarget=(id,value)=>{
+    const target=Math.max(0,Number(value||0));
+    persistLibrary(threads.map(thread=>{
+      if(thread.id!==id)return thread;
+      return{...thread,inventoryTarget:target,lowStock:(thread.spools||0)<=Math.max(1,target-1)};
+    }));
+  };
+  const addManualShoppingItem=thread=>{
+    const name  = thread.color_name||thread.name||"Thread";
+    const brand = thread.brand||thread.brands?.primary||"";
+    const code  = thread.color_code||thread.code||"";
+    setShoppingList(c=>[...c,{
+      id:`${thread.id||code}-${Date.now()}`,
+      threadId:thread.id||code,
+      name,brand,code,
+      hex_color:thread.hex_color||thread.hex||thread.swatch||"",
+      fiber_type:thread.fiber_type||"",
+      weight:thread.weight||"",
+      qty:1,source:"manual"
+    }]);
+    setMessage(`${brand} ${code} — ${name} added to shopping list!`);
+  };
+  const removeShoppingItem=id=>setShoppingList(c=>c.filter(item=>item.id!==id));
+  const addProjectRequiredThread=thread=>{
+    const name  = thread.color_name||thread.name||"Thread";
+    const brand = thread.brand||thread.brands?.primary||"";
+    const code  = thread.color_code||thread.code||"";
+    const tid   = thread.id||code;
+    setProjects(c=>c.map(project=>{
+      if(project.id!==selectedProjectId)return project;
+      if(project.requiredThreads.some(item=>item.threadId===tid))return project;
+      return{...project,requiredThreads:[...project.requiredThreads,{
+        id:`${project.id}-${tid}`,threadId:tid,
+        name,brand,code,
+        hex_color:thread.hex_color||thread.hex||thread.swatch||"",
+        weight:thread.weight||"",
+        fiber_type:thread.fiber_type||""
+      }]};
+    }));
+    setMessage(`${brand} ${code} — ${name} added to "${projects.find(p=>p.id===selectedProjectId)?.name||"project"}"!`);
+  };
+  const createProject=()=>{
+    if(!newProjectForm.name.trim()){setMessage("Please enter a project name.");return;}
+    const id=`proj-${Date.now()}`;
+    setProjects(c=>[...c,{id,...newProjectForm,requiredThreads:[]}]);
+    setSelectedProjectId(id);setNewProjectForm(emptyProject);setShowNewProject(false);
+    setMessage(`Project "${newProjectForm.name}" created!`);
+  };
+  const removeProjectThread=threadId=>{setProjects(c=>c.map(p=>p.id===selectedProjectId?{...p,requiredThreads:p.requiredThreads.filter(i=>i.threadId!==threadId)}:p));};
+  const addProjectThreadFromManual=()=>{
+    const q=normalized(projectThreadInput).trim();if(!q)return;
+    const found=threads.find(thread=>[thread.name,thread.isacord,thread.barcode,thread.brands?.primary].some(v=>normalized(v).includes(q)));
+    if(!found)return setMessage("No thread found.");
+    addProjectRequiredThread(found);setProjectThreadInput("");
+  };
+  const addProjectThreadFromScan=()=>{
+    const q=normalized(projectScanInput).trim();if(!q)return;
+    const found=threads.find(thread=>normalized(thread.barcode)===q||normalized(thread.isacord)===q);
+    if(!found)return setMessage("No thread found for that scan.");
+    addProjectRequiredThread(found);setProjectScanInput("");
+  };
+  const handleCameraImageUpload=event=>{
+    const file=event.target.files?.[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=()=>{setCameraImage(reader.result);setCameraSample(null);};
+    reader.readAsDataURL(file);
+  };
+  const handleImageSample=event=>{
+    const img=event.currentTarget;const rect=img.getBoundingClientRect();
+    const canvas=document.createElement("canvas");
+    canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;
+    const ctx=canvas.getContext("2d");if(!ctx)return;
+    ctx.drawImage(img,0,0);
+    const x=Math.max(0,Math.min(rect.width-1,event.clientX-rect.left));
+    const y=Math.max(0,Math.min(rect.height-1,event.clientY-rect.top));
+    const px=Math.floor((x/rect.width)*img.naturalWidth);
+    const py=Math.floor((y/rect.height)*img.naturalHeight);
+    const data=ctx.getImageData(px,py,1,1).data;
+    const hex=`#${[data[0],data[1],data[2]].map(v=>v.toString(16).padStart(2,"0")).join("").toUpperCase()}`;
+    setCameraSample({hex,r:data[0],g:data[1],b:data[2]});
+  };
+  const handleCameraMatchWithBarcode=useCallback(async thread=>{
+    if(pendingBarcode&&supabase&&userId){
+      try{
+        await supabase.from("thread_barcodes").upsert({barcode:pendingBarcode,brand_key:"isacord",color_code:thread.color_code||thread.code||thread.name,first_scanned_by:userId,confirmed_count:1},{onConflict:"barcode"});
+        setMessage("Barcode saved for the community!");
+      }catch(e){console.error(e);}
+      setPendingBarcode(null);
+    }
+  },[pendingBarcode,supabase,userId]);
+  const addToUserInventory=async thread=>{
+    const label = `${thread.brand||"Thread"} ${thread.color_code||thread.code||""} — ${thread.color_name||thread.name||""}`.trim();
+    try{
+      if(supabase&&userId&&thread.id){
+        // Store directly in user_inventory using thread_library_all id
+        const isAllBrandsRow = thread.brand_key !== undefined;
+        if(isAllBrandsRow){
+          // thread_library_all row — use thread_all_id
+          const{error}=await supabase.from("user_inventory")
+            .upsert({user_id:userId,thread_all_id:thread.id,spool_count:1},{onConflict:"user_id,thread_all_id"});
+          if(error){console.error("user_inventory upsert error:",error.message);saveThreadToLocalStash(thread);setMessage(`${label} saved locally.`);return;}
+        } else {
+          // legacy thread_library row — use thread_id
+          const{error}=await supabase.from("user_inventory")
+            .upsert({user_id:userId,thread_id:thread.id,spool_count:1},{onConflict:"user_id,thread_id"});
+          if(error){console.error("user_inventory upsert error:",error.message);saveThreadToLocalStash(thread);setMessage(`${label} saved locally.`);return;}
+        }
+        if(error){
+          console.error("user_inventory upsert error:",error.message);
+          // If FK fails (thread_id not in thread_library), save to local stash instead
+          saveThreadToLocalStash(thread);
+          setMessage(`${label} saved to local stash.`);
+          return;
+        }
+        setMessage(`${label} added to your stash!`);
+        return;
+      }
+    }catch(e){
+      console.error("addToUserInventory error:",e);
+    }
+    // Offline / no supabase — save locally
+    saveThreadToLocalStash(thread);
+    setMessage(`${label} saved to local stash.`);
+  };
+
+  const saveThreadToLocalStash=thread=>{
+    const key="hh_thread_stash";
+    const existing=JSON.parse(localStorage.getItem(key)||"[]");
+    const id=thread.id||thread.color_code||thread.code;
+    if(!existing.find(t=>t.id===id)){
+      localStorage.setItem(key,JSON.stringify([...existing,{
+        id,brand:thread.brand||"",brand_key:thread.brand_key||"",
+        color_code:thread.color_code||thread.code||"",
+        color_name:thread.color_name||thread.name||"",
+        hex_color:thread.hex_color||thread.hex||thread.swatch||"",
+        fiber_type:thread.fiber_type||"",weight:thread.weight||"",
+        quantity:1,added:new Date().toISOString()
+      }]));
+    }
+  };
+
+  // ── Export stash as CSV ───────────────────────────────────
+  const exportStash = async () => {
+    const rows = [];
+    const ts = new Date().toISOString().slice(0,10);
+
+    // Helper to escape CSV fields
+    const esc = v => `"${String(v||"").replace(/"/g,'""')}"`;
+
+    if(supabase && userId){
+      // Fetch all stash sections from Supabase
+      const [{data:th},{data:ru},{data:ma},{data:di},{data:fe}] = await Promise.all([
+        supabase.from("user_inventory")
+          .select("spool_count,thread_library(color_code,color_name,hex_color),thread_library_all(brand,color_code,color_name,hex_color)")
+          .eq("user_id",userId),
+        supabase.from("user_rulers")
+          .select("quantity,ruler_library(brand,model,shape,size_inches,material)")
+          .eq("user_id",userId),
+        supabase.from("user_machines")
+          .select("serial_number,purchase_date,purchase_price,dealer,warranty_until,user_notes,machine_library(brand,model,type,category)")
+          .eq("user_id",userId),
+        supabase.from("user_dies")
+          .select("quantity,machine_library(brand,model,category)")
+          .eq("user_id",userId),
+        supabase.from("user_feet")
+          .select("quantity,feet_library(brand,foot_name,category,shank_type)")
+          .eq("user_id",userId),
+      ]);
+
+      // THREADS
+      rows.push("THREADS");
+      rows.push(["Type","Brand","Code","Color Name","Hex Color","Spools"].map(esc).join(","));
+      (th||[]).forEach(item => {
+        const t = item.thread_library_all || item.thread_library;
+        if(!t) return;
+        rows.push([
+          "Thread",
+          item.thread_library_all ? t.brand : "Isacord",
+          t.color_code, t.color_name, t.hex_color||"",
+          item.spool_count||1
+        ].map(esc).join(","));
+      });
+
+      // RULERS
+      rows.push("");
+      rows.push("RULERS");
+      rows.push(["Type","Brand","Model","Shape","Size","Material","Quantity"].map(esc).join(","));
+      (ru||[]).forEach(item => {
+        const r = item.ruler_library;
+        if(!r) return;
+        rows.push(["Ruler",r.brand,r.model,r.shape,r.size_inches,r.material,item.quantity].map(esc).join(","));
+      });
+
+      // MACHINES
+      rows.push("");
+      rows.push("MACHINES");
+      rows.push(["Type","Brand","Model","Category","Serial Number","Purchase Date","Purchase Price","Dealer","Warranty Until","Notes"].map(esc).join(","));
+      (ma||[]).forEach(item => {
+        const m = item.machine_library;
+        if(!m) return;
+        rows.push([
+          "Machine", m.brand, m.model, m.category,
+          item.serial_number||"", item.purchase_date||"",
+          item.purchase_price||"", item.dealer||"",
+          item.warranty_until||"", item.user_notes||""
+        ].map(esc).join(","));
+      });
+
+      // ACCUQUILT DIES
+      rows.push("");
+      rows.push("ACCUQUILT DIES");
+      rows.push(["Type","Brand","Model","Category","Quantity"].map(esc).join(","));
+      (di||[]).forEach(item => {
+        const d = item.machine_library;
+        if(!d) return;
+        rows.push(["AccuQuilt Die",d.brand,d.model,d.category,item.quantity||1].map(esc).join(","));
+      });
+
+      // FEET
+      rows.push("");
+      rows.push("PRESSER FEET");
+      rows.push(["Type","Brand","Foot Name","Category","Shank Type","Quantity"].map(esc).join(","));
+      (fe||[]).forEach(item => {
+        const f = item.feet_library;
+        if(!f) return;
+        rows.push(["Presser Foot",f.brand,f.foot_name,f.category,f.shank_type,item.quantity||1].map(esc).join(","));
+      });
+    } else {
+      // Local threads only
+      rows.push("THREADS (Local Library)");
+      rows.push(["Name","Isacord Code","Barcode","Weight","Spools","Spool Size","Inventory Target","Color Family","Hex Color"].map(esc).join(","));
+      threads.forEach(t => {
+        rows.push([
+          t.name, t.isacord||"", t.barcode||"", t.weight||"",
+          t.spools||0, t.spoolSize||"", t.inventoryTarget||0,
+          t.family||"", t.hex||t.swatch||""
+        ].map(esc).join(","));
+      });
+    }
+
+    // ACCESSORIES (localStorage)
+    const savedAcc = JSON.parse(localStorage.getItem("hh_accessories")||"[]");
+    if(savedAcc.length > 0){
+      rows.push("");
+      rows.push("ACCESSORIES");
+      rows.push(["Type","Name","Quantity","Notes"].map(esc).join(","));
+      savedAcc.forEach(a => {
+        rows.push(["Accessory",a.name,a.quantity||1,a.notes||""].map(esc).join(","));
+      });
+    }
+
+    // Generate and download
+    const csv = rows.join("\n");
+    const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `haberdash-haven-stash-${ts}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setMessage("Stash exported! Check your downloads folder.");
+  };
+
+  const checkForUpdates=async()=>{
+    try{ const r=await fetch("/data/library-version.json",{cache:"no-store"}); const j=await r.json(); const rv=j.libraryVersion||j.version||syncMeta.libraryVersion; persistSyncMeta({...syncMeta,remoteLibraryVersion:rv,status:versionCompare(rv,syncMeta.libraryVersion)>0?"Update available":"Library up to date",hasUpdate:versionCompare(rv,syncMeta.libraryVersion)>0}); }
+    catch{persistSyncMeta({...syncMeta,status:"Sync check unavailable"});}
+  };
+  const runAutoSync=async()=>{
+    try{
+      persistSyncMeta({...syncMeta,status:"Syncing…"});
+      const vr=await fetch("/data/library-version.json",{cache:"no-store"}); const vj=await vr.json(); const rv=vj.libraryVersion||vj.version||syncMeta.libraryVersion;
+      if(versionCompare(rv,syncMeta.libraryVersion)<=0){persistSyncMeta({...syncMeta,remoteLibraryVersion:rv,status:"Library already current",hasUpdate:false});return;}
+      const lr=await fetch("/data/thread-library.json",{cache:"no-store"}); const lj=await lr.json();
+      if(!Array.isArray(lj))throw new Error("Bad library");
+      persistLibrary(lj);
+      persistSyncMeta({appVersion:APP_VERSION,libraryVersion:rv,remoteLibraryVersion:rv,status:"Synced",lastSynced:new Date().toLocaleString(),hasUpdate:false});
+      setMessage("Library synced!");
+    }catch{persistSyncMeta({...syncMeta,status:"Sync failed"});setMessage("Sync failed.");}
+  };
+
+  // ── Match card ────────────────────────────────────────────
+  const MatchCard=({thread})=>{
+    const [selectedCrossRef, setSelectedCrossRef] = React.useState(settings.crossRefBrand||"");
+    const [crossRefResult, setCrossRefResult]     = React.useState(null);
+
+    const isAllBrandsRow = thread.brand_key !== undefined && thread.color_code !== undefined;
+    const isSupaThread   = !isAllBrandsRow && thread.code !== undefined && thread.color_name !== undefined && !thread.brands;
+    const hex            = thread.hex_color||thread.hex||thread.swatch||"#CCCCCC";
+    const displayName    = isAllBrandsRow
+      ? `${thread.color_code} — ${thread.color_name}`
+      : isSupaThread ? `${thread.code} — ${thread.color_name}` : thread.name;
+    const displayBrand   = isAllBrandsRow
+      ? thread.brand
+      : isSupaThread ? (thread.manufacturer||"Isacord") : (thread.brands?.primary||"—");
+    const currentBrandKey = thread.brand_key||"isacord";
+
+    // Find nearest equivalent whenever selected brand changes
+    React.useEffect(()=>{
+      if(!selectedCrossRef){ setCrossRefResult(null); return; }
+      const bk = brandKeyMap[selectedCrossRef]||normalized(selectedCrossRef).replace(/[^a-z0-9]/g,"_");
+      if(bk===currentBrandKey){ setCrossRefResult(null); return; }
+      const nearest = findNearestInBrand(hex, bk, supaAllThreads);
+      setCrossRefResult(nearest);
+    },[selectedCrossRef, hex]);
+
+    return(
+      <div className="card">
+        {/* Swatch + name */}
+        <div className="thread-row">
+          <div className="swatch" style={{background:hex}}/>
+          <div style={{flex:1}}>
+            <div className="thread-name">{displayName}</div>
+            <div className="muted">{displayBrand}</div>
+          </div>
+        </div>
+
+        {/* Thread details */}
+        {(isAllBrandsRow||isSupaThread)&&(
+          <div className="list-box">
+            <div><b>Code:</b> {thread.color_code||thread.code}</div>
+            {thread.fiber_type&&<div><b>Fiber:</b> {thread.fiber_type}{thread.weight?` · ${thread.weight}`:""}</div>}
+            <div><b>Color family:</b> {hexToFamilyKey(thread)}</div>
+          </div>
+        )}
+        {!isAllBrandsRow&&!isSupaThread&&(
+          <div className="list-box">
+            {settings.showBarcodes&&thread.barcode&&<div><b>Barcode:</b> {thread.barcode}</div>}
+            {thread.weight&&<div><b>Weight:</b> {thread.weight}</div>}
+          </div>
+        )}
+
+        {/* ── Find equivalent in another brand ── */}
+        {supaAllThreads.length>0&&(isAllBrandsRow||isSupaThread)&&(
+          <div style={{
+            marginTop:10,padding:"10px 12px",
+            background:"var(--sun-wash)",
+            border:"1.5px solid var(--border-sun)",
+            borderRadius:"var(--r-sm)"
+          }}>
+            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <span style={{fontSize:12,fontWeight:700,color:"var(--teal)",whiteSpace:"nowrap"}}>
+                Find equivalent in:
+              </span>
+              <select
+                value={selectedCrossRef}
+                onChange={e=>setSelectedCrossRef(e.target.value)}
+                style={{
+                  flex:1,minWidth:140,padding:"5px 10px",
+                  border:"1.5px solid var(--border-sun)",
+                  borderRadius:"var(--r-sm)",
+                  background:"var(--warm-white)",
+                  fontFamily:"Nunito,sans-serif",
+                  fontSize:13,fontWeight:600,color:"var(--ink)",
+                  cursor:"pointer",outline:"none"
+                }}
+              >
+                <option value="">— choose a brand —</option>
+                {threadBrands
+                  .filter(([,bk])=>bk!==currentBrandKey)
+                  .map(([label])=>(
+                    <option key={label} value={label}>{label}</option>
+                  ))
+                }
+              </select>
+            </div>
+
+            {/* Result */}
+            {selectedCrossRef&&crossRefResult&&(
+              <div style={{
+                display:"flex",alignItems:"center",gap:10,marginTop:8,
+                padding:"8px 10px",
+                background:"var(--warm-white)",
+                border:"1.5px solid var(--border-teal)",
+                borderRadius:"var(--r-sm)",
+                boxShadow:"var(--shadow-xs)"
+              }}>
+                {crossRefResult.hex_color&&(
+                  <div style={{
+                    width:32,height:32,borderRadius:"50%",flexShrink:0,
+                    background:crossRefResult.hex_color,
+                    border:"2px solid rgba(255,255,255,0.6)",
+                    boxShadow:"0 2px 6px rgba(0,0,0,0.18),inset 0 1px 3px rgba(255,255,255,0.3)"
+                  }}/>
+                )}
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:700,fontSize:13,color:"var(--ink)"}}>
+                    {crossRefResult.color_code} — {crossRefResult.color_name}
+                  </div>
+                  <div style={{fontSize:11,color:"var(--muted)"}}>
+                    {crossRefResult.brand}{crossRefResult.fiber_type?` · ${crossRefResult.fiber_type}`:""}
+                  </div>
+                </div>
+                <button
+                  className="btn active"
+                  style={{fontSize:11,padding:"5px 10px",flexShrink:0}}
+                  onClick={()=>addToUserInventory(crossRefResult)}
+                >+ Add</button>
+              </div>
+            )}
+            {selectedCrossRef&&!crossRefResult&&(
+              <p style={{fontSize:12,color:"var(--muted)",marginTop:8}}>
+                No {selectedCrossRef} colors loaded.
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="button-row">
+          <button className="btn active" onClick={()=>addToUserInventory(thread)}>+ Add to Stash</button>
+          <button className="btn" onClick={()=>addProjectRequiredThread(thread)}>Add to Project</button>
+          <button className="btn" onClick={()=>addManualShoppingItem(thread)}>Shopping List</button>
+        </div>
+      </div>
+    );
+  };
+
+  // ── 4 main tabs ───────────────────────────────────────────
+  const mainTabs=[["home","Home"],["match","Match"],["stash","Stash"],["projects","Projects"],["more","More"]];
+
+  return(
+    <div className="app-shell">
+      <header className="hero card dark">
+        <div className="hero-inner">
+          <img src="/HH_Logo.png" alt="Haberdash Haven Logo" className="hero-logo" />
+          <div className="hero-text">
+            <div className="brand"><span className="brand-accent">✿</span> Haberdash Haven</div>
+            <div className="tagline">Making the world a better place. One stitch at a time...</div>
+          </div>
+        </div>
+        <div className="hero-bar"></div>
+      </header>
+
+      {/* ── 4-tab main nav ── */}
+      <nav className="nav-row main-nav">
+        {mainTabs.map(([key,label])=>(
+          <button key={key} className={`btn ${tab===key?"active":""}`}
+            onClick={()=>setTab(key)}
+            style={{flex:1,textAlign:"center"}}>
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {message&&<div className="message" onClick={()=>setMessage("")}>{message} ✕</div>}
+
+      {/* ══════════════════════════════════════════════════════
+          HOME
+          ══════════════════════════════════════════════════════ */}
+      {tab==="home"&&(
+        <div>
+          <div className="card">
+            <div className="stats-grid">
+              <div className="stat-box"><div className="stat-num">{supaAllThreads.length>0?supaAllThreads.length:threads.length}</div><div className="stat-label">Thread Colors</div></div>
+              <div className="stat-box"><div className="stat-num">{lowStockCount}</div><div className="stat-label">Low Stock</div></div>
+              <div className="stat-box"><div className="stat-num">{belowTargetCount}</div><div className="stat-label">Below Target</div></div>
+              <div className="stat-box"><div className="stat-num">{mergedShoppingList.length}</div><div className="stat-label">Shopping List</div></div>
+            </div>
+          </div>
+          <div className="card">
+            <h2>Quick Actions</h2>
+            <div className="quick-grid">
+              <button className="quick-btn gold"  onClick={()=>setTab("match")}><span className="icon">🔍</span>Match Thread</button>
+              <button className="quick-btn teal"  onClick={()=>setTab("stash")}><span className="icon">◈</span>My Stash</button>
+              <button className="quick-btn ocean" onClick={()=>{setTab("more");setMoreSubTab("machines");}}><span className="icon">⚙️</span>Machines</button>
+              <button className="quick-btn amber" onClick={()=>{setTab("more");setMoreSubTab("accuquilt");}}><span className="icon">◈</span>AccuQuilt</button>
+              <button className="quick-btn green" onClick={()=>{setTab("more");setMoreSubTab("projects");}}><span className="icon">◉</span>Projects</button>
+              <button className="quick-btn navy"  onClick={()=>{setTab("more");setMoreSubTab("settings");}}><span className="icon">⚙</span>Settings</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          MATCH — sub-tabs: Thread | Camera | Fabric | Barcode
+          ══════════════════════════════════════════════════════ */}
+      {tab==="match"&&(
+        <>
+          {/* Sub-tab row */}
+          <div className="sub-tab-row">
+            {[["thread","🔍 Thread"],["camera","📷 Camera"],["fabric","◈ Fabric"],["barcode","▦ Barcode"]].map(([key,label])=>(
+              <button key={key} className={`sub-tab ${subTab===key?"active":""}`} onClick={()=>setSubTab(key)}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Thread search */}
+          {subTab==="thread"&&(
+            <>
+              <div className="card">
+                <label>Thread Brand
+                  <select className="input" value={matchBrand} onChange={e=>setMatchBrand(e.target.value)}>
+                    {threadBrands.map(([label])=><option key={label}>{label}</option>)}
+                  </select>
+                </label>
+                <label>{t("match_color_family",lang)}
+                  <select className="input" value={colorFamilyKey} onChange={e=>setColorFamilyKey(e.target.value)}>
+                    {COLOR_FAMILY_KEYS.map((key,i)=>(
+                      <option key={key} value={key}>{getColorFamilies(lang)[i]}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>Search (name, code, or barcode)
+                  <input className="input" value={matchQuery} onChange={e=>setMatchQuery(e.target.value)} placeholder="color name, code… e.g. Navy, 3810, Dusty Rose"/>
+                </label>
+                {colorFamilyKey==="All"&&!matchQuery&&(
+                  <div style={{marginTop:-8}}>
+                    {supaAllThreads.length>0?(
+                      <p className="muted" style={{fontSize:12}}>
+                        {supaAllThreads.filter(t=>t.brand_key===(brandKeyMap[matchBrand]||matchBrand)).length} {matchBrand} colors
+                        · {supaAllThreads.length} total across all brands.
+                        Choose a color family or type to search.
+                      </p>
+                    ):supabase?(
+                      <p className="muted" style={{fontSize:12,color:"var(--sky-cobalt)"}}>
+                        ⏳ Loading thread database… If this takes more than a few seconds,
+                        run step 33 SQL in Supabase to fix RLS on thread_library_all.
+                      </p>
+                    ):(
+                      <p className="muted" style={{fontSize:12}}>
+                        {threads.length} local colors available. Sign in to search all brands.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+              {filteredMatchResults.length===0&&(matchQuery.trim()||colorFamilyKey!=="All")&&(
+                <div className="card">
+                  <p className="muted">
+                    {supaAllThreads.length===0&&supabase
+                      ? "⏳ Still loading thread database — please wait a moment and try again."
+                      : `No ${matchBrand} colors found for ${colorFamilyKey!=="All"?`"${colorFamilyKey}"`:""} ${matchQuery?`"${matchQuery}"`:""}. Try a different color family, brand, or search term.`
+                    }
+                  </p>
+                  {supaAllThreads.length===0&&supabase&&(
+                    <p style={{fontSize:11,color:"var(--sky-cobalt)",marginTop:6}}>
+                      If this persists, run step 33 SQL in Supabase to fix RLS on thread_library_all.
+                    </p>
+                  )}
+                </div>
+              )}
+              {filteredMatchResults.map((thread,i)=><MatchCard key={thread.id||thread.code||i} thread={thread}/>)}
+
+              {/* Collapsible manual add */}
+              <div className="card" style={{borderStyle:"dashed",borderColor:"#C9A84C"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer"}} onClick={()=>setShowAddThread(v=>!v)}>
+                  <div><div style={{fontWeight:700,color:"#5C4A1E"}}>+ Add a thread manually</div><div className="muted" style={{fontSize:12}}>Can't find it? Add it to your local library.</div></div>
+                  <span style={{fontSize:18,color:"#C9A84C"}}>{showAddThread?"▲":"▼"}</span>
+                </div>
+                {showAddThread&&(
+                  <div style={{marginTop:14,borderTop:"1px solid #EEE",paddingTop:14}}>
+                    <label>Thread Name<input className="input" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></label>
+                    <label>Color Family<input className="input" value={form.family} onChange={e=>setForm({...form,family:e.target.value})} placeholder="e.g. Blues, Reds…"/></label>
+                    <label>Isacord Code<input className="input" value={form.isacord} onChange={e=>setForm({...form,isacord:e.target.value})}/></label>
+                    <label>Barcode<input className="input" value={form.barcode} onChange={e=>setForm({...form,barcode:e.target.value})}/></label>
+                    <label>Thread Weight<input className="input" value={form.weight} onChange={e=>setForm({...form,weight:e.target.value})}/></label>
+                    <label>Spools on hand<input className="input" type="number" value={form.spools} onChange={e=>setForm({...form,spools:e.target.value})}/></label>
+                    <label>Inventory Target<input className="input" type="number" value={form.inventoryTarget} onChange={e=>setForm({...form,inventoryTarget:e.target.value})}/></label>
+                    <label>Spool Size<select className="input" value={form.spoolSize} onChange={e=>setForm({...form,spoolSize:e.target.value})}>{commonSpoolSizes.map(s=><option key={s}>{s}</option>)}</select></label>
+                    <label>Color Swatch<input className="input" type="color" value={form.swatch} onChange={e=>setForm({...form,swatch:e.target.value})}/></label>
+                    <button className="btn active" style={{width:"100%"}} onClick={addThread}>Save Thread to My Stash</button>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* Camera match */}
+          {subTab==="camera"&&(
+            <>
+              {pendingBarcode&&(
+                <div className="card" style={{borderColor:"#F5C400"}}>
+                  <p><b>Identifying barcode:</b> {pendingBarcode}</p>
+                  <p className="muted">Take a photo of the thread. Once matched, the barcode is saved for everyone.</p>
+                </div>
+              )}
+              <div className="card">
+                <h2>Camera Color Match</h2>
+                <input className="input" type="file" accept="image/*" capture="environment" onChange={handleCameraImageUpload}/>
+                {cameraImage&&<img src={cameraImage} alt="Sample" className="camera-preview" onClick={handleImageSample}/>}
+                {cameraSample&&<div className="list-box"><b>Sampled:</b> {cameraSample.hex} ({cameraSample.r}, {cameraSample.g}, {cameraSample.b})</div>}
+              </div>
+              {cameraMatches.map((thread,i)=>(
+                <div key={thread.id||thread.code||i}>
+                  <MatchCard thread={thread}/>
+                  {pendingBarcode&&(
+                    <div style={{margin:"-8px 0 8px",padding:"0 4px"}}>
+                      <button className="btn active" style={{width:"100%"}} onClick={()=>handleCameraMatchWithBarcode(thread)}>✓ This is the thread — save barcode for everyone</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </>
+          )}
+
+          {/* Fabric match */}
+          {subTab==="fabric"&&(
+            <>
+              <div className="card">
+                <h2>Solid Fabric Match</h2>
+                <label>Fabric Brand
+                  <select className="input" value={matchBrand} onChange={e=>setMatchBrand(e.target.value)}>
+                    {fabricBrands.map(([label])=><option key={label}>{label}</option>)}
+                  </select>
+                </label>
+                <label>Search<input className="input" value={matchQuery} onChange={e=>setMatchQuery(e.target.value)} placeholder="Color name or family…"/></label>
+              </div>
+              {filteredMatchResults.map((thread,i)=><MatchCard key={thread.id||i} thread={thread}/>)}
+            </>
+          )}
+
+          {/* Barcode scan */}
+          {subTab==="barcode"&&(
+            <div style={{padding:"8px 0"}}>
+              {supabase
+                ?<BarcodeScanner supabase={supabase} userId={userId}
+                    onAddToStash={thread=>setMessage(`${thread.color_name} added to your stash!`)}
+                    onColorMatch={barcode=>{setPendingBarcode(barcode);setSubTab("camera");}}
+                  />
+                :<div className="card"><p className="muted">Connect to Supabase to use barcode scanning.</p></div>
+              }
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          STASH — all inventory in one place
+          ══════════════════════════════════════════════════════ */}
+      {tab==="stash"&&(
+        <UniversalStash
+          supabase={supabase} userId={userId}
+          shoppingList={shoppingList} mergedShoppingList={mergedShoppingList}
+          threads={threads} updateSpools={updateSpools}
+          updateInventoryTarget={updateInventoryTarget}
+          addManualShoppingItem={addManualShoppingItem}
+          removeShoppingItem={removeShoppingItem}
+          settings={settings}
+        />
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          PROJECTS
+          ══════════════════════════════════════════════════════ */}
+      {tab==="projects"&&(
+        <div>
+          {/* Header */}
+          <div className="card" style={{padding:"14px 18px"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <h2 style={{margin:0}}>Projects</h2>
+              <button className="btn active" onClick={()=>setShowNewProject(v=>!v)}>
+                {showNewProject?"✕ Cancel":"+ New Project"}
+              </button>
+            </div>
+
+            {/* New project form */}
+            {showNewProject&&(
+              <div style={{marginTop:14,paddingTop:14,borderTop:"1.5px solid var(--border-teal)"}}>
+                <label>Project Name
+                  <input className="input" value={newProjectForm.name}
+                    onChange={e=>setNewProjectForm({...newProjectForm,name:e.target.value})}
+                    placeholder="e.g. Autumn Leaves Quilt"/>
+                </label>
+                <label>Status
+                  <select className="input" value={newProjectForm.status}
+                    onChange={e=>setNewProjectForm({...newProjectForm,status:e.target.value})}>
+                    {["Planning","In Progress","On Hold","Complete"].map(s=><option key={s}>{s}</option>)}
+                  </select>
+                </label>
+                <label>Notes
+                  <input className="input" value={newProjectForm.notes}
+                    onChange={e=>setNewProjectForm({...newProjectForm,notes:e.target.value})}
+                    placeholder="Optional notes…"/>
+                </label>
+                <button className="btn active" style={{width:"100%"}} onClick={createProject}>
+                  Create Project
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Project list */}
+          {projects.map(project=>(
+            <div key={project.id} className="card"
+              style={{borderColor:project.id===selectedProjectId?"var(--teal)":undefined,
+                borderWidth:project.id===selectedProjectId?2:undefined}}>
+              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                    <span style={{
+                      fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:6,
+                      background:project.status==="Complete"?"var(--leaf-light)":
+                                 project.status==="In Progress"?"var(--sky-pale)":
+                                 project.status==="On Hold"?"#FFF8E1":"var(--teal-pale)",
+                      color:project.status==="Complete"?"var(--leaf)":
+                            project.status==="In Progress"?"var(--sky-cobalt)":
+                            project.status==="On Hold"?"var(--sun-amber)":"var(--teal)",
+                      border:"1px solid var(--border-teal)"
+                    }}>{project.status}</span>
+                  </div>
+                  <div className="thread-name">{project.name}</div>
+                  <div className="muted" style={{fontSize:12}}>
+                    {project.requiredThreads.length} thread{project.requiredThreads.length!==1?"s":""}
+                  </div>
+                  {project.notes&&<div className="muted" style={{fontSize:12,fontStyle:"italic",marginTop:3}}>{project.notes}</div>}
+                </div>
+                <button
+                  className={`btn ${project.id===selectedProjectId?"active":""}`}
+                  style={{fontSize:11,padding:"5px 10px",flexShrink:0}}
+                  onClick={()=>setSelectedProjectId(project.id)}>
+                  {project.id===selectedProjectId?"✓ Active":"Select"}
+                </button>
+              </div>
+
+              {/* Thread list for this project */}
+              {project.requiredThreads.length>0&&(
+                <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid var(--border-teal)"}}>
+                  {project.requiredThreads.map(item=>(
+                    <div key={item.id} style={{
+                      display:"flex",alignItems:"center",gap:10,
+                      padding:"6px 0",borderBottom:"1px solid var(--teal-pale)"
+                    }}>
+                      {item.hex_color&&(
+                        <div style={{
+                          width:28,height:28,borderRadius:"50%",flexShrink:0,
+                          background:item.hex_color,
+                          border:"2px solid rgba(255,255,255,0.6)",
+                          boxShadow:"0 1px 4px rgba(0,0,0,0.15)"
+                        }}/>
+                      )}
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:700,fontSize:13}}>
+                          {item.brand&&`${item.brand} `}{item.code} — {item.name}
+                        </div>
+                        {item.weight&&<div className="muted" style={{fontSize:11}}>{item.fiber_type} {item.weight}</div>}
+                      </div>
+                      <button className="btn"
+                        style={{fontSize:11,padding:"4px 8px",color:"#C0392B",borderColor:"#C0392B",flexShrink:0}}
+                        onClick={()=>removeProjectThread(item.threadId)}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {project.requiredThreads.length===0&&(
+                <p className="muted" style={{fontSize:12,marginTop:8}}>
+                  No threads yet — use Match tab to add threads to this project.
+                </p>
+              )}
+            </div>
+          ))}
+
+          {/* Active project quick-add */}
+          <div className="card" style={{borderStyle:"dashed",borderColor:"var(--sun-amber)",background:"var(--sun-wash)"}}>
+            <div style={{fontWeight:700,color:"var(--teal)",marginBottom:10}}>
+              Add thread to: <span style={{color:"var(--sky-cobalt)"}}>{selectedProject?.name||"—"}</span>
+            </div>
+            <div className="button-row" style={{marginTop:0,marginBottom:10}}>
+              <button className={`btn ${projectEntryMode==="manual"?"active":""}`} onClick={()=>setProjectEntryMode("manual")}>Search</button>
+              <button className={`btn ${projectEntryMode==="scan"?"active":""}`} onClick={()=>setProjectEntryMode("scan")}>Code / Scan</button>
+            </div>
+            {projectEntryMode==="manual"?(
+              <div style={{display:"flex",gap:8}}>
+                <input className="input" style={{marginBottom:0,flex:1}}
+                  value={projectThreadInput}
+                  onChange={e=>setProjectThreadInput(e.target.value)}
+                  placeholder="color name, code…"
+                  onKeyDown={e=>e.key==="Enter"&&addProjectThreadFromManual()}/>
+                <button className="btn active" onClick={addProjectThreadFromManual}>Add</button>
+              </div>
+            ):(
+              <div style={{display:"flex",gap:8}}>
+                <input className="input" style={{marginBottom:0,flex:1}}
+                  value={projectScanInput}
+                  onChange={e=>setProjectScanInput(e.target.value)}
+                  placeholder="barcode or code"
+                  onKeyDown={e=>e.key==="Enter"&&addProjectThreadFromScan()}/>
+                <button className="btn active" onClick={addProjectThreadFromScan}>Add</button>
+              </div>
+            )}
+            <p className="muted" style={{fontSize:11,marginTop:8}}>
+              Tip: Use the Match tab to find a thread, then tap "Add to Project" to add it to your active project.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          MORE — browse libraries + manage
+          ══════════════════════════════════════════════════════ */}
+      {tab==="more"&&(
+        <>
+          {/* More sub-nav */}
+          <div className="sub-tab-row">
+            {[["machines","⚙️ Machines"],["accuquilt","◈ AccuQuilt"],["feet","👟 Feet"],["rulers","📐 Rulers"],["help","? Help"],["settings","⚙ Settings"]].map(([key,label])=>(
+              <button key={key} className={`sub-tab ${moreSubTab===key?"active":""}`} onClick={()=>setMoreSubTab(key)}>{label}</button>
+            ))}
+          </div>
+
+          {moreSubTab==="machines"&&(supabase?<MachinesBrowser supabase={supabase} userId={userId}/>:<div className="card"><p className="muted">Connect to Supabase to browse machines.</p></div>)}
+          {moreSubTab==="accuquilt"&&(supabase?<AccuQuiltBrowser supabase={supabase} userId={userId}/>:<div className="card"><p className="muted">Connect to Supabase to browse AccuQuilt.</p></div>)}
+          {moreSubTab==="feet"&&(supabase?<FeetBrowser supabase={supabase} userId={userId}/>:<div className="card"><p className="muted">Connect to Supabase to browse presser feet.</p></div>)}
+          {moreSubTab==="rulers"&&(supabase?<RulerBrowser supabase={supabase} userId={userId}/>:<div className="card"><p className="muted">Connect to Supabase to browse rulers.</p></div>)}
+
+          {moreSubTab==="help"&&(
+            <div className="card">
+              <h2>Help</h2>
+              <p><b>Match → Thread:</b> Pick a brand, pick a color family, or type to search. All 4,000+ thread colors across every brand are searchable. Every result has + Add to Stash, Add to Project, and Shopping List buttons.</p>
+              <p style={{marginTop:8}}><b>Match → Camera:</b> Photo a fabric or thread, tap the color, get the 5 closest matches.</p>
+              <p style={{marginTop:8}}><b>Match → Barcode:</b> Scan any thread spool. Found = instant add to stash. Not found = identify by camera, barcode saved for everyone.</p>
+              <p style={{marginTop:8}}><b>Stash:</b> Everything you own in one place — threads, rulers, machines, AccuQuilt dies, feet, and accessories.</p>
+              <p style={{marginTop:8}}><b>More → Machines/AccuQuilt/Feet/Rulers:</b> Browse the full libraries and tap + Add to track what you own.</p>
+              <p style={{marginTop:8}}><b>More → Projects:</b> Create projects and build required thread lists.</p>
+            </div>
+          )}
+
+          {moreSubTab==="settings"&&(
+            <div className="card">
+              <h2>{t("settings_title",lang)}</h2>
+              <label className="check"><input type="checkbox" checked={settings.showBarcodes} onChange={e=>setSettings({...settings,showBarcodes:e.target.checked})}/> {t("settings_show_barcodes",lang)}</label>
+              <label className="check"><input type="checkbox" checked={settings.showWeights} onChange={e=>setSettings({...settings,showWeights:e.target.checked})}/> {t("settings_show_weights",lang)}</label>
+              <label className="check"><input type="checkbox" checked={settings.autoAddZeroInventoryToShoppingList} onChange={e=>setSettings({...settings,autoAddZeroInventoryToShoppingList:e.target.checked})}/> {t("settings_auto_shop",lang)}</label>
+              <label>Default Thread Brand
+                <select className="input" value={settings.defaultBrand||"Isacord"} onChange={e=>{setSettings({...settings,defaultBrand:e.target.value});setMatchBrand(e.target.value);}}>
+                  {threadBrands.map(([label])=><option key={label}>{label}</option>)}
+                </select>
+                <span className="muted" style={{fontSize:12,marginTop:-8,display:"block"}}>Pre-selected when you open the Match tab.</span>
+              </label>
+              <label>Preferred Cross-Reference Brand
+                <select className="input" value={settings.crossRefBrand||""} onChange={e=>setSettings({...settings,crossRefBrand:e.target.value})}>
+                  <option value="">— None (choose per card) —</option>
+                  {threadBrands.map(([label])=><option key={label}>{label}</option>)}
+                </select>
+                <span className="muted" style={{fontSize:12,marginTop:-8,display:"block"}}>Auto-show equivalent in this brand on every match card. You can still change it per card.</span>
+              </label>
+              <label>{t("settings_language",lang)}
+                <select className="input" value={lang} onChange={e=>setLang(e.target.value)}>
+                  {LANGUAGES.map(l=><option key={l.code} value={l.code}>{l.flag} {l.label}</option>)}
+                </select>
+                <span className="muted" style={{fontSize:12,marginTop:-8,display:"block"}}>{t("settings_language_note",lang)}</span>
+              </label>
+              <div className="list-box">
+                <div><b>{t("settings_app_version",lang)}:</b> {syncMeta.appVersion}</div>
+                <div><b>{t("settings_lib_version",lang)}:</b> {syncMeta.libraryVersion}</div>
+                <div><b>Remote:</b> {syncMeta.remoteLibraryVersion}</div>
+                <div><b>{t("settings_last_synced",lang)}:</b> {syncMeta.lastSynced}</div>
+                <div><b>{t("settings_status",lang)}:</b> {syncMeta.status}</div>
+                {supabase&&<div>{t("settings_connected",lang)}</div>}
+                {supaAllThreads.length>0&&<div><b>Thread DB:</b> {supaAllThreads.length} colors across all brands ✓</div>}
+              </div>
+              <div className="button-row">
+                <button className="btn" onClick={checkForUpdates}>{t("settings_check_updates",lang)}</button>
+                <button className="btn active" onClick={runAutoSync}>{t("settings_sync",lang)}</button>
+              </div>
+
+              {/* ── Export ── */}
+              <div className="export-section">
+                <div className="export-title">⬇ Export Your Stash</div>
+                <p className="muted" style={{fontSize:12,marginBottom:10}}>
+                  Downloads a .csv file with all your threads, rulers, machines, AccuQuilt dies, presser feet, and accessories. Open in Excel, Google Sheets, or Numbers.
+                </p>
+                <button className="btn active" style={{width:"100%"}} onClick={exportStash}>
+                  ⬇ Export Stash as CSV
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
