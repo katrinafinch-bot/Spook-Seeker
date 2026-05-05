@@ -1195,12 +1195,255 @@ function BarcodeScanner({ supabase, userId, onAddToStash, onColorMatch }) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// AUTH SCREEN — Sign in / Sign up / Guest mode
+// ─────────────────────────────────────────────────────────────
+function AuthScreen({ supabase, onGuest }) {
+  const [mode, setMode]         = useState("signin"); // signin | signup | reset
+  const [email, setEmail]       = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName]         = useState("");
+  const [loading, setLoading]   = useState(false);
+  const [message, setMessage]   = useState("");
+  const [error, setError]       = useState("");
+
+  async function handleSignIn(e){
+    e.preventDefault();
+    setLoading(true); setError(""); setMessage("");
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if(error) setError(error.message);
+    setLoading(false);
+  }
+
+  async function handleSignUp(e){
+    e.preventDefault();
+    setLoading(true); setError(""); setMessage("");
+    const { error } = await supabase.auth.signUp({
+      email, password,
+      options: { data: { display_name: name } }
+    });
+    if(error) setError(error.message);
+    else setMessage("Check your email for a confirmation link!");
+    setLoading(false);
+  }
+
+  async function handleReset(e){
+    e.preventDefault();
+    setLoading(true); setError(""); setMessage("");
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin,
+    });
+    if(error) setError(error.message);
+    else setMessage("Password reset email sent!");
+    setLoading(false);
+  }
+
+  return(
+    <div style={{
+      minHeight:"100vh",
+      background:"#EAE4CE",
+      backgroundImage:`
+        radial-gradient(ellipse 120% 60% at 50% 0%, rgba(37,99,192,0.12) 0%, transparent 55%),
+        radial-gradient(ellipse 80% 50% at 15% 100%, rgba(232,168,0,0.18) 0%, transparent 50%)
+      `,
+      display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+      padding:"20px", fontFamily:"Nunito, sans-serif"
+    }}>
+      {/* Logo + title */}
+      <div style={{textAlign:"center", marginBottom:28}}>
+        <img src="/HH_Logo.png" alt="Haberdash Haven"
+          style={{width:100, height:100, borderRadius:"50%",
+            border:"3px solid #E8A800",
+            boxShadow:"0 0 0 6px rgba(232,168,0,0.15), 0 8px 32px rgba(0,0,0,0.25)",
+            marginBottom:14}}/>
+        <div style={{fontFamily:"Playfair Display, serif", fontSize:"1.8rem",
+          fontWeight:800, color:"#0A1F40", marginBottom:4}}>
+          Haberdash Haven
+        </div>
+        <div style={{fontFamily:"Caveat, cursive", fontSize:"1rem",
+          color:"#C97B00", letterSpacing:"0.3px"}}>
+          Making the world a better place. One stitch at a time...
+        </div>
+      </div>
+
+      {/* Auth card */}
+      <div style={{
+        background:"white", borderRadius:20, padding:"28px 28px",
+        width:"100%", maxWidth:400,
+        boxShadow:"0 8px 40px rgba(13,82,82,0.18), 0 2px 8px rgba(0,0,0,0.08)",
+        border:"1.5px solid #B8D8D8"
+      }}>
+        {/* Mode tabs */}
+        <div style={{display:"flex", gap:0, marginBottom:22,
+          background:"#EEF8F8", borderRadius:12, padding:4}}>
+          {[["signin","Sign In"],["signup","Create Account"]].map(([m,label])=>(
+            <button key={m} onClick={()=>{setMode(m);setError("");setMessage("");}}
+              style={{
+                flex:1, padding:"8px 0", border:"none", borderRadius:9,
+                fontFamily:"Nunito, sans-serif", fontSize:13, fontWeight:700,
+                cursor:"pointer", transition:"all 0.15s",
+                background: mode===m ? "#0D5252" : "transparent",
+                color: mode===m ? "white" : "#5C6E6E",
+                boxShadow: mode===m ? "0 2px 8px rgba(13,82,82,0.25)" : "none"
+              }}>{label}</button>
+          ))}
+        </div>
+
+        {/* Sign In form */}
+        {mode==="signin"&&(
+          <form onSubmit={handleSignIn}>
+            <label style={{display:"block",fontWeight:700,fontSize:13,color:"#0D5252",marginBottom:2}}>
+              Email
+            </label>
+            <input type="email" required value={email} onChange={e=>setEmail(e.target.value)}
+              placeholder="your@email.com"
+              style={{width:"100%",padding:"10px 14px",marginBottom:12,borderRadius:9,
+                border:"1.5px solid #B8D8D8",fontSize:14,fontFamily:"Nunito,sans-serif",
+                background:"#EEF8F8",outline:"none",boxSizing:"border-box"}}/>
+            <label style={{display:"block",fontWeight:700,fontSize:13,color:"#0D5252",marginBottom:2}}>
+              Password
+            </label>
+            <input type="password" required value={password} onChange={e=>setPassword(e.target.value)}
+              placeholder="••••••••"
+              style={{width:"100%",padding:"10px 14px",marginBottom:6,borderRadius:9,
+                border:"1.5px solid #B8D8D8",fontSize:14,fontFamily:"Nunito,sans-serif",
+                background:"#EEF8F8",outline:"none",boxSizing:"border-box"}}/>
+            <div style={{textAlign:"right",marginBottom:16}}>
+              <button type="button" onClick={()=>setMode("reset")}
+                style={{background:"none",border:"none",color:"#1A7070",
+                  fontSize:12,cursor:"pointer",fontFamily:"Nunito,sans-serif",fontWeight:600}}>
+                Forgot password?
+              </button>
+            </div>
+            {error&&<div style={{background:"#FDECEA",border:"1px solid #C0392B",borderRadius:8,
+              padding:"8px 12px",color:"#C0392B",fontSize:13,marginBottom:12}}>{error}</div>}
+            {message&&<div style={{background:"#E4F0D6",border:"1px solid #3D7226",borderRadius:8,
+              padding:"8px 12px",color:"#2D5A1B",fontSize:13,marginBottom:12}}>{message}</div>}
+            <button type="submit" disabled={loading}
+              style={{width:"100%",padding:"12px",borderRadius:12,border:"none",
+                background:"linear-gradient(145deg, #1A7070 0%, #0D5252 100%)",
+                color:"white",fontFamily:"Nunito,sans-serif",fontSize:15,fontWeight:800,
+                cursor:loading?"not-allowed":"pointer",
+                boxShadow:"0 4px 16px rgba(13,82,82,0.30)",marginBottom:10}}>
+              {loading ? "Signing in…" : "Sign In"}
+            </button>
+          </form>
+        )}
+
+        {/* Sign Up form */}
+        {mode==="signup"&&(
+          <form onSubmit={handleSignUp}>
+            <label style={{display:"block",fontWeight:700,fontSize:13,color:"#0D5252",marginBottom:2}}>
+              Your Name
+            </label>
+            <input type="text" value={name} onChange={e=>setName(e.target.value)}
+              placeholder="First name or nickname"
+              style={{width:"100%",padding:"10px 14px",marginBottom:12,borderRadius:9,
+                border:"1.5px solid #B8D8D8",fontSize:14,fontFamily:"Nunito,sans-serif",
+                background:"#EEF8F8",outline:"none",boxSizing:"border-box"}}/>
+            <label style={{display:"block",fontWeight:700,fontSize:13,color:"#0D5252",marginBottom:2}}>
+              Email
+            </label>
+            <input type="email" required value={email} onChange={e=>setEmail(e.target.value)}
+              placeholder="your@email.com"
+              style={{width:"100%",padding:"10px 14px",marginBottom:12,borderRadius:9,
+                border:"1.5px solid #B8D8D8",fontSize:14,fontFamily:"Nunito,sans-serif",
+                background:"#EEF8F8",outline:"none",boxSizing:"border-box"}}/>
+            <label style={{display:"block",fontWeight:700,fontSize:13,color:"#0D5252",marginBottom:2}}>
+              Password
+            </label>
+            <input type="password" required value={password} onChange={e=>setPassword(e.target.value)}
+              placeholder="At least 6 characters"
+              style={{width:"100%",padding:"10px 14px",marginBottom:16,borderRadius:9,
+                border:"1.5px solid #B8D8D8",fontSize:14,fontFamily:"Nunito,sans-serif",
+                background:"#EEF8F8",outline:"none",boxSizing:"border-box"}}/>
+            {error&&<div style={{background:"#FDECEA",border:"1px solid #C0392B",borderRadius:8,
+              padding:"8px 12px",color:"#C0392B",fontSize:13,marginBottom:12}}>{error}</div>}
+            {message&&<div style={{background:"#E4F0D6",border:"1px solid #3D7226",borderRadius:8,
+              padding:"8px 12px",color:"#2D5A1B",fontSize:13,marginBottom:12}}>{message}</div>}
+            <button type="submit" disabled={loading}
+              style={{width:"100%",padding:"12px",borderRadius:12,border:"none",
+                background:"linear-gradient(145deg, #1A7070 0%, #0D5252 100%)",
+                color:"white",fontFamily:"Nunito,sans-serif",fontSize:15,fontWeight:800,
+                cursor:loading?"not-allowed":"pointer",
+                boxShadow:"0 4px 16px rgba(13,82,82,0.30)",marginBottom:10}}>
+              {loading ? "Creating account…" : "Create Account"}
+            </button>
+          </form>
+        )}
+
+        {/* Password reset */}
+        {mode==="reset"&&(
+          <form onSubmit={handleReset}>
+            <p style={{fontSize:13,color:"#5C6E6E",marginBottom:14}}>
+              Enter your email and we'll send you a link to reset your password.
+            </p>
+            <label style={{display:"block",fontWeight:700,fontSize:13,color:"#0D5252",marginBottom:2}}>
+              Email
+            </label>
+            <input type="email" required value={email} onChange={e=>setEmail(e.target.value)}
+              placeholder="your@email.com"
+              style={{width:"100%",padding:"10px 14px",marginBottom:16,borderRadius:9,
+                border:"1.5px solid #B8D8D8",fontSize:14,fontFamily:"Nunito,sans-serif",
+                background:"#EEF8F8",outline:"none",boxSizing:"border-box"}}/>
+            {error&&<div style={{background:"#FDECEA",border:"1px solid #C0392B",borderRadius:8,
+              padding:"8px 12px",color:"#C0392B",fontSize:13,marginBottom:12}}>{error}</div>}
+            {message&&<div style={{background:"#E4F0D6",border:"1px solid #3D7226",borderRadius:8,
+              padding:"8px 12px",color:"#2D5A1B",fontSize:13,marginBottom:12}}>{message}</div>}
+            <button type="submit" disabled={loading}
+              style={{width:"100%",padding:"12px",borderRadius:12,border:"none",
+                background:"linear-gradient(145deg, #1A7070 0%, #0D5252 100%)",
+                color:"white",fontFamily:"Nunito,sans-serif",fontSize:15,fontWeight:800,
+                cursor:loading?"not-allowed":"pointer",
+                boxShadow:"0 4px 16px rgba(13,82,82,0.30)",marginBottom:10}}>
+              {loading ? "Sending…" : "Send Reset Link"}
+            </button>
+            <button type="button" onClick={()=>setMode("signin")}
+              style={{width:"100%",padding:"10px",borderRadius:12,
+                border:"1.5px solid #B8D8D8",background:"white",
+                color:"#5C6E6E",fontFamily:"Nunito,sans-serif",fontSize:13,
+                fontWeight:700,cursor:"pointer"}}>
+              Back to Sign In
+            </button>
+          </form>
+        )}
+
+        {/* Divider */}
+        <div style={{display:"flex",alignItems:"center",gap:10,margin:"16px 0"}}>
+          <div style={{flex:1,height:1,background:"#D4E8E8"}}/>
+          <span style={{fontSize:12,color:"#9EB8B8",fontWeight:600}}>or</span>
+          <div style={{flex:1,height:1,background:"#D4E8E8"}}/>
+        </div>
+
+        {/* Guest mode */}
+        <button onClick={onGuest}
+          style={{width:"100%",padding:"11px",borderRadius:12,
+            border:"1.5px solid #B8D8D8",background:"white",
+            color:"#0D5252",fontFamily:"Nunito,sans-serif",fontSize:13,
+            fontWeight:700,cursor:"pointer",
+            boxShadow:"0 2px 8px rgba(13,82,82,0.08)"}}>
+          👀 Browse as Guest
+        </button>
+        <p style={{textAlign:"center",fontSize:11,color:"#9EB8B8",marginTop:8}}>
+          Guest mode lets you search threads but won't save your stash.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // MAIN APP
 // ─────────────────────────────────────────────────────────────
 export default function App({ supabase, user }) {
   const userId = user?.id||null;
+  const [guestMode, setGuestMode] = useState(false);
   // Expose supabase on window so child components (CrossRefTab) can use precomputed table
   if(supabase) window._supabaseClient = supabase;
+
+  // Show auth screen if not logged in and not in guest mode
+  if(supabase && !user && !guestMode){
+    return <AuthScreen supabase={supabase} onGuest={()=>setGuestMode(true)}/>;
+  }
 
   // ── State ─────────────────────────────────────────────────
   const [tab, setTab]                 = useState("home");
@@ -2274,6 +2517,38 @@ export default function App({ supabase, user }) {
           {moreSubTab==="settings"&&(
             <div className="card">
               <h2>{t("settings_title",lang)}</h2>
+              {/* User info + sign out */}
+              {user?(
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+                  padding:"10px 14px",background:"var(--teal-pale)",borderRadius:"var(--r-sm)",
+                  border:"1.5px solid var(--border-teal)",marginBottom:14}}>
+                  <div>
+                    <div style={{fontWeight:700,fontSize:13,color:"var(--teal)"}}>
+                      {user.user_metadata?.display_name||user.email}
+                    </div>
+                    <div className="muted" style={{fontSize:11}}>{user.email}</div>
+                  </div>
+                  <button className="btn"
+                    style={{fontSize:11,padding:"5px 10px",color:"#C0392B",borderColor:"#C0392B"}}
+                    onClick={()=>supabase.auth.signOut()}>
+                    Sign Out
+                  </button>
+                </div>
+              ):(
+                <div style={{padding:"10px 14px",background:"var(--sun-pale)",borderRadius:"var(--r-sm)",
+                  border:"1.5px solid var(--border-sun)",marginBottom:14}}>
+                  <div style={{fontWeight:700,fontSize:13,color:"var(--teal)",marginBottom:4}}>
+                    Browsing as Guest
+                  </div>
+                  <p className="muted" style={{fontSize:12,marginBottom:8}}>
+                    Sign in to save your stash, projects, and settings.
+                  </p>
+                  <button className="btn active" style={{width:"100%",fontSize:12}}
+                    onClick={()=>setGuestMode(false)}>
+                    Sign In / Create Account
+                  </button>
+                </div>
+              )}
               <label className="check"><input type="checkbox" checked={settings.showBarcodes} onChange={e=>setSettings({...settings,showBarcodes:e.target.checked})}/> {t("settings_show_barcodes",lang)}</label>
               <label className="check"><input type="checkbox" checked={settings.showWeights} onChange={e=>setSettings({...settings,showWeights:e.target.checked})}/> {t("settings_show_weights",lang)}</label>
               <label className="check"><input type="checkbox" checked={settings.autoAddZeroInventoryToShoppingList} onChange={e=>setSettings({...settings,autoAddZeroInventoryToShoppingList:e.target.checked})}/> {t("settings_auto_shop",lang)}</label>
