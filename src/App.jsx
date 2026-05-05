@@ -316,9 +316,9 @@ function UniversalStash({ supabase, userId, shoppingList, mergedShoppingList, th
     setLoading(true);
     try{
       const [{data:th},{data:ru},{data:ma},{data:di},{data:fe}] = await Promise.all([
-        supabase.from("user_inventory").select("spool_count,thread_id,thread_all_id,thread_library(color_code,color_name,hex_color),thread_library_all(brand,color_code,color_name,hex_color,fiber_type,weight)").eq("user_id",userId),
+        supabase.from("user_inventory").select("spool_count,thread_library(id,brand,brand_key,color_code,color_name,hex_color,fiber_type,weight)").eq("user_id",userId),
         supabase.from("user_rulers").select("quantity,ruler_library(brand,model,shape,size_inches,material)").eq("user_id",userId),
-        supabase.from("user_machines").select("machine_id,serial_number,purchase_date,purchase_price,dealer,warranty_until,user_notes,machine_library(id,brand,model,type,category,throat_space,fun_fact)").eq("user_id",userId),
+        supabase.from("user_machines").select("machine_id,serial_number,purchase_date,purchase_price,dealer,warranty_until,user_notes,machine_library(id,brand,model,type,category,throat_space,fun_fact,is_computerized)").eq("user_id",userId),
         supabase.from("user_dies").select("quantity,machine_library(id,brand,model,type,category)").eq("user_id",userId),
         supabase.from("user_feet").select("quantity,feet_library(brand,foot_name,category,shank_type)").eq("user_id",userId),
       ]);
@@ -399,17 +399,16 @@ function UniversalStash({ supabase, userId, shoppingList, mergedShoppingList, th
               ?<p className="muted">No threads yet — use the Match tab to find and add threads.</p>
               :stash.threads.map((item,i)=>{
                 // Support both thread_library (Isacord) and thread_library_all (all brands)
-                const th = item.thread_library_all || item.thread_library;
+                const th = item.thread_library;
                 if(!th) return null;
                 const hex = th.hex_color || "#CCC";
                 const spools = item.spool_count || 1;
-                const brandLabel = item.thread_library_all ? `${th.brand} · ` : "";
                 return(
                   <div key={i} className="thread-row" style={{borderBottom:"1px solid var(--border-teal)",paddingBottom:8,marginBottom:8}}>
                     <div className="swatch" style={{background:hex}}/>
                     <div>
-                      <div className="thread-name">{th.color_code} — {th.color_name}</div>
-                      <div className="muted">{brandLabel}{spools} {spools===1?"spool":"spools"}</div>
+                      <div className="thread-name">{th.brand} {th.color_code} — {th.color_name}</div>
+                      <div className="muted">{th.fiber_type||""} · {spools} {spools===1?"spool":"spools"}</div>
                     </div>
                   </div>
                 );
@@ -561,13 +560,13 @@ function MachinesBrowser({ supabase, userId }) {
   const [filter,setFilter]=useState("All");
   const [search,setSearch]=useState("");
   const [loading,setLoading]=useState(true);
-  const types=["All","Sewing","Quilting","Embroidery","Serger","Longarm","Vintage","Fabric Cutter"];
+  const types=["All","Sewing","Quilting","Embroidery","Serger","Longarm","Vintage","Fabric Cutter","Computerized"];
 
   useEffect(()=>{ if(!supabase)return; fetchMachines(); if(userId)fetchOwned(); },[supabase,userId]);
 
   async function fetchMachines(){
     setLoading(true);
-    const{data}=await supabase.from("machine_library").select("*").order("brand").order("model");
+    const{data}=await supabase.from("machine_library").select("*,is_computerized").order("brand").order("model");
     setMachines(data||[]);setLoading(false);
   }
   async function fetchOwned(){
@@ -599,9 +598,13 @@ function MachinesBrowser({ supabase, userId }) {
   }
 
   const filtered=machines.filter(m=>{
-    const matchType=filter==="All"||m.type===filter||m.category?.includes(filter);
+    const matchType = filter==="All"
+      ? true
+      : filter==="Computerized"
+        ? m.is_computerized===true
+        : m.type===filter||m.category?.includes(filter);
     const q=normalized(search);
-    const matchSearch=!q||normalized(m.brand).includes(q)||normalized(m.model).includes(q)||normalized(m.category).includes(q);
+    const matchSearch=!q||normalized(m.brand).includes(q)||normalized(m.model).includes(q)||normalized(m.category||"").includes(q);
     return matchType&&matchSearch;
   });
 
@@ -624,6 +627,13 @@ function MachinesBrowser({ supabase, userId }) {
               <div style={{flex:1}}>
                 <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}>
                   <span className="type-badge">{machine.type}</span>
+                  {machine.is_computerized&&(
+                    <span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:6,
+                      background:"var(--sky-pale)",color:"var(--sky-cobalt)",
+                      border:"1px solid rgba(37,99,192,0.25)"}}>
+                      💻 Computerized
+                    </span>
+                  )}
                   {machine.category&&<span className="muted" style={{fontSize:11}}>{machine.category}</span>}
                 </div>
                 <div className="thread-name">{machine.brand} {machine.model}</div>
@@ -784,6 +794,317 @@ function FeetBrowser({ supabase, userId }) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// CROSS-REFERENCE TAB
+// User picks two brands. Pick or search a thread from Brand A.
+// App finds the nearest match in Brand B instantly.
+// ─────────────────────────────────────────────────────────────
+function CrossRefTab({ supaAllThreads, threadBrands, brandKeyMap, addToUserInventory,
+                       addProjectRequiredThread, addManualShoppingItem, hexToFamilyKey, settings }) {
+
+  const [brandA, setBrandA]           = useState(threadBrands[0][0]);
+  const [brandB, setBrandB]           = useState(threadBrands[1][0]);
+  const [searchA, setSearchA]         = useState("");
+  const [selectedThread, setSelectedThread] = useState(null);
+  const [results, setResults]         = useState([]); // top 5 matches in brand B
+
+  // Threads for brand A dropdown
+  const brandAKey = brandKeyMap[brandA] || normalized(brandA).replace(/[^a-z0-9]/g,"_");
+  const brandBKey = brandKeyMap[brandB] || normalized(brandB).replace(/[^a-z0-9]/g,"_");
+
+  const brandAThreads = useMemo(()=>{
+    if(!searchA.trim()) return [];
+    const q = normalized(searchA);
+    return supaAllThreads
+      .filter(t => t.brand_key === brandAKey &&
+        (normalized(t.color_name).includes(q) || normalized(t.color_code).includes(q)))
+      .slice(0, 30);
+  }, [supaAllThreads, brandAKey, searchA]);
+
+  // When a thread is selected, find top 5 nearest in brand B
+  // Tries precomputed thread_crossref table first; falls back to live computation
+  useEffect(()=>{
+    if(!selectedThread){ setResults([]); return; }
+
+    async function findMatches(){
+      // ── Try precomputed crossref table ──
+      if(window._supabaseClient){
+        try{
+          const supaClient = window._supabaseClient;
+          const{data,error} = await supaClient
+            .from("thread_crossref")
+            .select("ref_thread_id,distance,distance_pct,thread_library!ref_thread_id(id,brand,brand_key,color_code,color_name,hex_color,fiber_type,weight)")
+            .eq("thread_id", selectedThread.id)
+            .order("distance", {ascending:true})
+            .limit(20); // fetch 20, then filter to target brand top 5
+
+          if(!error && data && data.length > 0){
+            const brandMatches = data
+              .filter(r => r.thread_library?.brand_key === brandBKey)
+              .slice(0,5)
+              .map(r => ({...r.thread_library, _distance: r.distance, _distance_pct: r.distance_pct}));
+
+            if(brandMatches.length > 0){
+              setResults(brandMatches);
+              return;
+            }
+          }
+        }catch(e){
+          // Crossref table not available yet — fall through to live computation
+        }
+      }
+
+      // ── Live computation fallback ──
+      const rgb = hexToRgb(selectedThread.hex_color);
+      if(!rgb){ setResults([]); return; }
+      const matches = supaAllThreads
+        .filter(t => t.brand_key === brandBKey && t.hex_color)
+        .map(t => ({ thread:t, dist:colorDistance(rgb, hexToRgb(t.hex_color)) }))
+        .sort((a,b) => a.dist - b.dist)
+        .slice(0,5)
+        .map(m => m.thread);
+      setResults(matches);
+    }
+
+    findMatches();
+  }, [selectedThread, brandBKey, supaAllThreads]);
+
+  // Swap brands
+  function swapBrands() {
+    const tmp = brandA;
+    setBrandA(brandB);
+    setBrandB(tmp);
+    setSelectedThread(null);
+    setSearchA("");
+    setResults([]);
+  }
+
+  return (
+    <div>
+      {/* Brand selectors */}
+      <div className="card">
+        <h2>Thread Cross-Reference</h2>
+        <p className="muted" style={{fontSize:13,marginBottom:14}}>
+          Pick two brands. Search for a color in the first brand — we'll find the closest matches in the second.
+        </p>
+
+        <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:10,alignItems:"end",marginBottom:4}}>
+          <label>From Brand
+            <select className="input" style={{marginBottom:0}} value={brandA}
+              onChange={e=>{setBrandA(e.target.value);setSelectedThread(null);setSearchA("");setResults([]);}}>
+              {threadBrands.filter(([l])=>l!==brandB).map(([label])=>
+                <option key={label}>{label}</option>
+              )}
+            </select>
+          </label>
+
+          <button onClick={swapBrands} className="btn"
+            style={{padding:"9px 12px",fontSize:16,marginBottom:0,alignSelf:"end"}}>
+            ⇄
+          </button>
+
+          <label>To Brand
+            <select className="input" style={{marginBottom:0}} value={brandB}
+              onChange={e=>{setBrandB(e.target.value);setSelectedThread(null);setResults([]);}}>
+              {threadBrands.filter(([l])=>l!==brandA).map(([label])=>
+                <option key={label}>{label}</option>
+              )}
+            </select>
+          </label>
+        </div>
+
+        {supaAllThreads.filter(t=>t.brand_key===brandAKey).length===0 && (
+          <p style={{fontSize:12,color:"var(--sun-amber)",marginTop:8}}>
+            ⚠ No {brandA} colors loaded yet.
+          </p>
+        )}
+        {supaAllThreads.filter(t=>t.brand_key===brandBKey).length===0 && (
+          <p style={{fontSize:12,color:"var(--sun-amber)",marginTop:4}}>
+            ⚠ No {brandB} colors loaded yet.
+          </p>
+        )}
+      </div>
+
+      {/* Search brand A */}
+      <div className="card">
+        <label>Search {brandA}
+          <input className="input" value={searchA}
+            onChange={e=>{setSearchA(e.target.value);setSelectedThread(null);setResults([]);}}
+            placeholder={`color name or code…`}/>
+        </label>
+
+        {/* Brand A results — pick one */}
+        {brandAThreads.length > 0 && !selectedThread && (
+          <div>
+            <div className="muted" style={{fontSize:12,marginBottom:8}}>{brandAThreads.length} results — tap to select:</div>
+            {brandAThreads.map(thread=>(
+              <div key={thread.id}
+                onClick={()=>setSelectedThread(thread)}
+                style={{
+                  display:"flex",alignItems:"center",gap:12,
+                  padding:"10px 12px",marginBottom:6,
+                  borderRadius:"var(--r-sm)",
+                  border:"1.5px solid var(--border-teal)",
+                  background:"var(--teal-pale)",
+                  cursor:"pointer",
+                  transition:"all 0.15s"
+                }}
+                onMouseEnter={e=>e.currentTarget.style.borderColor="var(--teal)"}
+                onMouseLeave={e=>e.currentTarget.style.borderColor="var(--border-teal)"}
+              >
+                {thread.hex_color && (
+                  <div style={{
+                    width:36,height:36,borderRadius:"50%",flexShrink:0,
+                    background:thread.hex_color,
+                    border:"2px solid rgba(255,255,255,0.6)",
+                    boxShadow:"0 2px 6px rgba(0,0,0,0.18),inset 0 1px 3px rgba(255,255,255,0.3)"
+                  }}/>
+                )}
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:700,fontSize:13}}>{thread.color_code} — {thread.color_name}</div>
+                  <div className="muted" style={{fontSize:11}}>{thread.brand} · {thread.fiber_type||""} {thread.weight||""}</div>
+                </div>
+                <span style={{fontSize:11,color:"var(--teal)",fontWeight:700}}>Select →</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {searchA.trim() && brandAThreads.length === 0 && (
+          <p className="muted" style={{fontSize:12}}>No {brandA} colors found for "{searchA}".</p>
+        )}
+      </div>
+
+      {/* Selected thread + matches */}
+      {selectedThread && (
+        <>
+          {/* Selected source thread */}
+          <div className="card" style={{borderColor:"var(--teal)",borderWidth:2}}>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--teal)",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px"}}>
+              Selected — {brandA}
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              {selectedThread.hex_color && (
+                <div style={{
+                  width:52,height:52,borderRadius:"50%",flexShrink:0,
+                  background:selectedThread.hex_color,
+                  border:"3px solid rgba(255,255,255,0.7)",
+                  boxShadow:"0 3px 12px rgba(0,0,0,0.20),inset 0 2px 4px rgba(255,255,255,0.3)"
+                }}/>
+              )}
+              <div style={{flex:1}}>
+                <div style={{fontWeight:800,fontSize:16}}>{selectedThread.color_code} — {selectedThread.color_name}</div>
+                <div className="muted">{selectedThread.brand} · {selectedThread.fiber_type||""} {selectedThread.weight||""}</div>
+                <div className="muted" style={{fontSize:11}}>Color family: {hexToFamilyKey(selectedThread)}</div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                <button className="btn active" style={{fontSize:11,padding:"5px 10px"}}
+                  onClick={()=>addToUserInventory(selectedThread)}>+ Stash</button>
+                <button className="btn" style={{fontSize:11,padding:"5px 10px"}}
+                  onClick={()=>{setSelectedThread(null);setResults([]);}}>✕ Clear</button>
+              </div>
+            </div>
+          </div>
+
+          {/* Nearest matches in brand B */}
+          <div className="card">
+            <div style={{
+              fontFamily:"'Playfair Display',serif",fontSize:14,fontWeight:700,
+              color:"var(--teal)",marginBottom:12
+            }}>
+              Nearest {brandB} matches
+            </div>
+
+            {results.length === 0 && (
+              <p className="muted">No {brandB} colors loaded — check that {brandB} data exists in the database.</p>
+            )}
+
+            {results.map((match, i) => {
+              const isExact = i === 0;
+              return (
+                <div key={match.id} style={{
+                  display:"flex",alignItems:"center",gap:12,
+                  padding:"12px 14px",marginBottom:8,
+                  borderRadius:"var(--r-sm)",
+                  border:`1.5px solid ${isExact?"var(--teal)":"var(--border-teal)"}`,
+                  background: isExact ? "var(--teal-pale)" : "var(--warm-white)",
+                  boxShadow: isExact ? "var(--shadow-sm)" : "none"
+                }}>
+                  {/* Rank badge */}
+                  <div style={{
+                    width:22,height:22,borderRadius:"50%",flexShrink:0,
+                    background: isExact ? "var(--teal)" : "var(--border-teal)",
+                    color: isExact ? "var(--warm-white)" : "var(--muted)",
+                    fontSize:11,fontWeight:800,
+                    display:"flex",alignItems:"center",justifyContent:"center"
+                  }}>{i+1}</div>
+
+                  {/* Color swatch */}
+                  {match.hex_color && (
+                    <div style={{
+                      width:44,height:44,borderRadius:"50%",flexShrink:0,
+                      background:match.hex_color,
+                      border:"2px solid rgba(255,255,255,0.6)",
+                      boxShadow:"0 2px 8px rgba(0,0,0,0.18),inset 0 1px 3px rgba(255,255,255,0.3)"
+                    }}/>
+                  )}
+
+                  {/* Side-by-side comparison swatches */}
+                  <div style={{flexShrink:0}}>
+                    <div style={{fontSize:9,color:"var(--muted)",textAlign:"center",marginBottom:2}}>vs</div>
+                    <div style={{display:"flex",gap:2}}>
+                      <div style={{width:16,height:32,borderRadius:"4px 0 0 4px",background:selectedThread.hex_color||"#CCC"}}/>
+                      <div style={{width:16,height:32,borderRadius:"0 4px 4px 0",background:match.hex_color||"#CCC"}}/>
+                    </div>
+                  </div>
+
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:700,fontSize:13}}>
+                      {isExact && <span style={{fontSize:10,background:"var(--teal)",color:"white",borderRadius:4,padding:"1px 5px",marginRight:5}}>Best</span>}
+                      {match.color_code} — {match.color_name}
+                    </div>
+                    <div className="muted" style={{fontSize:11}}>{match.brand} · {match.fiber_type||""} {match.weight||""}</div>
+                    <div className="muted" style={{fontSize:11}}>Family: {hexToFamilyKey(match)}</div>
+                    {match._distance_pct!==undefined&&(
+                      <div style={{fontSize:10,color:"var(--teal)",fontWeight:700,marginTop:2}}>
+                        {match._distance_pct < 2 ? "🎯 Near-identical" :
+                         match._distance_pct < 8 ? "✓ Very close" :
+                         match._distance_pct < 15 ? "≈ Close" : "~ Similar"}
+                        {" "}({match._distance_pct.toFixed(1)}% difference)
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{display:"flex",flexDirection:"column",gap:4,flexShrink:0}}>
+                    <button className="btn active" style={{fontSize:11,padding:"5px 10px"}}
+                      onClick={()=>addToUserInventory(match)}>+ Stash</button>
+                    <button className="btn" style={{fontSize:11,padding:"5px 10px"}}
+                      onClick={()=>addProjectRequiredThread(match)}>Project</button>
+                    <button className="btn" style={{fontSize:11,padding:"5px 10px"}}
+                      onClick={()=>addManualShoppingItem(match)}>+ List</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {!selectedThread && !searchA && (
+        <div className="card" style={{textAlign:"center",padding:"28px 20px"}}>
+          <div style={{fontSize:32,marginBottom:10}}>⇄</div>
+          <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,fontWeight:700,color:"var(--teal)",marginBottom:6}}>
+            Cross-Reference Any Two Brands
+          </div>
+          <p className="muted" style={{fontSize:13}}>
+            Select a "From" brand and "To" brand above, then search for a color.
+            We'll find the top 5 closest color matches in the second brand.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // BARCODE SCANNER
 // ─────────────────────────────────────────────────────────────
 function BarcodeScanner({ supabase, userId, onAddToStash, onColorMatch }) {
@@ -813,8 +1134,8 @@ function BarcodeScanner({ supabase, userId, onAddToStash, onColorMatch }) {
   async function handleBarcode(barcode){
     if(!supabase){setResult({barcode,found:false});return;}
     try{
-      const{data}=await supabase.from("thread_barcodes").select("*,thread_library_all(brand,brand_key,color_code,color_name,hex_color,fiber_type,weight,nearest_isacord)").eq("barcode",barcode).maybeSingle();
-      if(data?.thread_library_all){setResult({barcode,thread:data.thread_library_all,confirmed:data.confirmed_count,found:true});await supabase.rpc("increment_barcode_confirmation",{p_barcode:barcode});}
+      const{data}=await supabase.from("thread_barcodes").select("*,thread_library(id,brand,brand_key,color_code,color_name,hex_color,fiber_type,weight,nearest_isacord)").eq("barcode",barcode).maybeSingle();
+      if(data?.thread_library){setResult({barcode,thread:data.thread_library,confirmed:data.confirmed_count,found:true});await supabase.rpc("increment_barcode_confirmation",{p_barcode:barcode});}
       else{setResult({barcode,found:false});}
     }catch{setResult({barcode,found:false});}
   }
@@ -878,13 +1199,15 @@ function BarcodeScanner({ supabase, userId, onAddToStash, onColorMatch }) {
 // ─────────────────────────────────────────────────────────────
 export default function App({ supabase, user }) {
   const userId = user?.id||null;
+  // Expose supabase on window so child components (CrossRefTab) can use precomputed table
+  if(supabase) window._supabaseClient = supabase;
 
   // ── State ─────────────────────────────────────────────────
   const [tab, setTab]                 = useState("home");
   const [subTab, setSubTab]           = useState("thread"); // match sub-tabs
   const [moreSubTab, setMoreSubTab]   = useState("machines"); // more sub-tabs
   const [threads, setThreads]         = useState(starterThreads);
-  const [supaAllThreads, setSupaAllThreads] = useState([]); // thread_library_all — all 4,200+ colors
+  const [supaAllThreads, setSupaAllThreads] = useState([]); // unified thread_library — all brands
   const [form, setForm]               = useState(emptyForm);
   const [message, setMessage]         = useState("");
   const [settings, setSettings]       = useState(()=>{ const saved=localStorage.getItem("hh_settings"); return saved?JSON.parse(saved):{showBarcodes:true,showWeights:true,autoAddZeroInventoryToShoppingList:true,defaultMatchMode:"thread",defaultBrand:"Isacord",crossRefBrand:""}; });
@@ -924,51 +1247,34 @@ export default function App({ supabase, user }) {
     }catch(e){console.error(e);}
   },[]);
 
-  // ── Load ALL brands from thread_library_all ────────────────
-  // Paginates in batches of 1000 to get all 4,200+ rows.
-  // Falls back to thread_library (Isacord only) if blocked.
+  // ── Load thread library (single unified table) ──────────────
+  const [threadLoadStatus, setThreadLoadStatus] = useState("loading");
   useEffect(()=>{
-    if(!supabase)return;
-    async function loadAllThreads(){
-      // Try thread_library_all first
+    if(!supabase){ setThreadLoadStatus("no-db"); return; }
+    async function loadThreads(){
+      setThreadLoadStatus("loading");
       let allRows=[]; let from=0; const pageSize=1000;
       while(true){
         const{data,error}=await supabase
-          .from("thread_library_all")
-          .select("id,brand,brand_key,color_code,color_name,hex_color,fiber_type,weight,thread_type,nearest_isacord")
+          .from("thread_library")
+          .select("id,brand,brand_key,color_code,color_name,hex_color,fiber_type,weight,thread_type,nearest_isacord,barcode,family")
           .order("color_name")
           .range(from,from+pageSize-1);
-        if(error){console.error("thread_library_all error:",error.message);break;}
-        if(!data||data.length===0)break;
+        if(error){ console.error("thread_library load error:",error.message); setThreadLoadStatus("error"); break; }
+        if(!data||data.length===0) break;
         allRows=[...allRows,...data];
-        if(data.length<pageSize)break;
+        if(data.length<pageSize) break;
         from+=pageSize;
       }
       if(allRows.length>0){
-        console.log(`Loaded ${allRows.length} threads from thread_library_all`);
+        console.log(`✓ Loaded ${allRows.length} thread colors`);
         setSupaAllThreads(allRows);
-        return;
-      }
-      // Fallback: thread_library with renamed columns (post step 35)
-      console.warn("thread_library_all empty/blocked, falling back to thread_library");
-      const{data:iData,error:iErr}=await supabase
-        .from("thread_library")
-        .select("id,color_code,color_name,hex_color,swatch")
-        .order("color_name");
-      if(iErr){console.error("thread_library fallback error:",iErr.message);return;}
-      if(iData&&iData.length>0){
-        const shaped=iData.map(t=>({
-          id:t.id, brand:"Isacord", brand_key:"isacord",
-          color_code:t.color_code, color_name:t.color_name,
-          hex_color:t.hex_color||t.swatch||null,
-          fiber_type:"Polyester", weight:"40 wt",
-          thread_type:"machine_embroidery", nearest_isacord:t.color_code,
-        }));
-        console.log(`Fallback: loaded ${shaped.length} Isacord colors`);
-        setSupaAllThreads(shaped);
+        setThreadLoadStatus("ok");
+      } else {
+        setThreadLoadStatus("empty");
       }
     }
-    loadAllThreads();
+    loadThreads();
   },[supabase]);
 
   // ── Derived ───────────────────────────────────────────────
@@ -1208,17 +1514,14 @@ export default function App({ supabase, user }) {
     try{
       if(supabase&&userId&&thread.id){
         // Store directly in user_inventory using thread_library_all id
-        const isAllBrandsRow = thread.brand_key !== undefined;
-        if(isAllBrandsRow){
-          // thread_library_all row — use thread_all_id
-          const{error}=await supabase.from("user_inventory")
-            .upsert({user_id:userId,thread_all_id:thread.id,spool_count:1},{onConflict:"user_id,thread_all_id"});
-          if(error){console.error("user_inventory upsert error:",error.message);saveThreadToLocalStash(thread);setMessage(`${label} saved locally.`);return;}
-        } else {
-          // legacy thread_library row — use thread_id
-          const{error}=await supabase.from("user_inventory")
-            .upsert({user_id:userId,thread_id:thread.id,spool_count:1},{onConflict:"user_id,thread_id"});
-          if(error){console.error("user_inventory upsert error:",error.message);saveThreadToLocalStash(thread);setMessage(`${label} saved locally.`);return;}
+        // Single thread_library table — thread.id is always the FK
+        const{error}=await supabase.from("user_inventory")
+          .upsert({user_id:userId,thread_id:thread.id,spool_count:1},{onConflict:"user_id,thread_id"});
+        if(error){
+          console.error("user_inventory upsert error:",error.message);
+          saveThreadToLocalStash(thread);
+          setMessage(`${label} saved locally.`);
+          return;
         }
         if(error){
           console.error("user_inventory upsert error:",error.message);
@@ -1266,7 +1569,7 @@ export default function App({ supabase, user }) {
       // Fetch all stash sections from Supabase
       const [{data:th},{data:ru},{data:ma},{data:di},{data:fe}] = await Promise.all([
         supabase.from("user_inventory")
-          .select("spool_count,thread_library(color_code,color_name,hex_color),thread_library_all(brand,color_code,color_name,hex_color)")
+          .select("spool_count,thread_library(brand,color_code,color_name,hex_color,fiber_type,weight)")
           .eq("user_id",userId),
         supabase.from("user_rulers")
           .select("quantity,ruler_library(brand,model,shape,size_inches,material)")
@@ -1284,16 +1587,11 @@ export default function App({ supabase, user }) {
 
       // THREADS
       rows.push("THREADS");
-      rows.push(["Type","Brand","Code","Color Name","Hex Color","Spools"].map(esc).join(","));
+      rows.push(["Type","Brand","Code","Color Name","Hex Color","Fiber","Weight","Spools"].map(esc).join(","));
       (th||[]).forEach(item => {
-        const t = item.thread_library_all || item.thread_library;
+        const t = item.thread_library;
         if(!t) return;
-        rows.push([
-          "Thread",
-          item.thread_library_all ? t.brand : "Isacord",
-          t.color_code, t.color_name, t.hex_color||"",
-          item.spool_count||1
-        ].map(esc).join(","));
+        rows.push(["Thread",t.brand||"",t.color_code||"",t.color_name||"",t.hex_color||"",t.fiber_type||"",t.weight||"",item.spool_count||1].map(esc).join(","));
       });
 
       // RULERS
@@ -1595,7 +1893,7 @@ export default function App({ supabase, user }) {
         <>
           {/* Sub-tab row */}
           <div className="sub-tab-row">
-            {[["thread","🔍 Thread"],["camera","📷 Camera"],["fabric","◈ Fabric"],["barcode","▦ Barcode"]].map(([key,label])=>(
+            {[["thread","🔍 Thread"],["crossref","⇄ Cross-Ref"],["camera","📷 Camera"],["fabric","◈ Fabric"],["barcode","▦ Barcode"]].map(([key,label])=>(
               <button key={key} className={`sub-tab ${subTab===key?"active":""}`} onClick={()=>setSubTab(key)}>
                 {label}
               </button>
@@ -1606,6 +1904,34 @@ export default function App({ supabase, user }) {
           {subTab==="thread"&&(
             <>
               <div className="card">
+                {/* Status bar — shows load state and count */}
+                <div style={{
+                  marginBottom:12, padding:"7px 12px",
+                  borderRadius:"var(--r-sm)",
+                  fontSize:12, fontWeight:600,
+                  background: threadLoadStatus==="ok-all" ? "var(--leaf-light)"
+                            : threadLoadStatus.startsWith("ok-") ? "var(--sun-pale)"
+                            : threadLoadStatus==="loading" ? "var(--sky-pale)"
+                            : threadLoadStatus==="local" ? "#FDECEA"
+                            : "var(--teal-pale)",
+                  color: threadLoadStatus==="ok-all" ? "var(--leaf)"
+                       : threadLoadStatus.startsWith("ok-") ? "var(--sun-amber)"
+                       : threadLoadStatus==="loading" ? "var(--sky-cobalt)"
+                       : threadLoadStatus==="local" ? "#C0392B"
+                       : "var(--teal)",
+                  border:"1px solid",
+                  borderColor: threadLoadStatus==="ok-all" ? "var(--leaf-light)"
+                             : threadLoadStatus.startsWith("ok-") ? "var(--border-sun)"
+                             : threadLoadStatus==="loading" ? "var(--sky-pale)"
+                             : "#FDECEA",
+                }}>
+                  {threadLoadStatus==="loading" && "⏳ Loading threads…"}
+                  {threadLoadStatus==="ok" && `✓ ${supaAllThreads.length.toLocaleString()} thread colors across all brands`}
+                  {threadLoadStatus==="error" && "⚠ Could not load threads — check RLS policy on thread_library table in Supabase."}
+                  {threadLoadStatus==="empty" && "⚠ No thread data found — run the SQL data load steps in Supabase."}
+                  {threadLoadStatus==="no-db" && "⚠ No database connection."}
+                </div>
+
                 <label>Thread Brand
                   <select className="input" value={matchBrand} onChange={e=>setMatchBrand(e.target.value)}>
                     {threadBrands.map(([label])=><option key={label}>{label}</option>)}
@@ -1632,7 +1958,7 @@ export default function App({ supabase, user }) {
                     ):supabase?(
                       <p className="muted" style={{fontSize:12,color:"var(--sky-cobalt)"}}>
                         ⏳ Loading thread database… If this takes more than a few seconds,
-                        run step 33 SQL in Supabase to fix RLS on thread_library_all.
+                        run step 33 SQL in Supabase to fix RLS on thread_library.
                       </p>
                     ):(
                       <p className="muted" style={{fontSize:12}}>
@@ -1652,7 +1978,7 @@ export default function App({ supabase, user }) {
                   </p>
                   {supaAllThreads.length===0&&supabase&&(
                     <p style={{fontSize:11,color:"var(--sky-cobalt)",marginTop:6}}>
-                      If this persists, run step 33 SQL in Supabase to fix RLS on thread_library_all.
+                      If this persists, run step 33 SQL in Supabase to fix RLS on thread_library.
                     </p>
                   )}
                 </div>
@@ -1681,6 +2007,20 @@ export default function App({ supabase, user }) {
                 )}
               </div>
             </>
+          )}
+
+          {/* ── Cross-Reference tab ── */}
+          {subTab==="crossref"&&(
+            <CrossRefTab
+              supaAllThreads={supaAllThreads}
+              threadBrands={threadBrands}
+              brandKeyMap={brandKeyMap}
+              addToUserInventory={addToUserInventory}
+              addProjectRequiredThread={addProjectRequiredThread}
+              addManualShoppingItem={addManualShoppingItem}
+              hexToFamilyKey={hexToFamilyKey}
+              settings={settings}
+            />
           )}
 
           {/* Camera match */}
