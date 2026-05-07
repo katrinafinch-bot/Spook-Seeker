@@ -1440,15 +1440,6 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
   // Expose supabase on window so child components (CrossRefTab) can use precomputed table
   if(supabase) window._supabaseClient = supabase;
 
-  // Show auth screen if no user (main.jsx controls this via screen state)
-  if(supabase && !user){
-    return <AuthScreen
-      supabase={supabase}
-      onGuest={onGuestMode||(() => {})}
-      onSignIn={onSignIn}
-    />;
-  }
-
   // ── State ─────────────────────────────────────────────────
   const [tab, setTab]                 = useState("home");
   const [subTab, setSubTab]           = useState("thread"); // match sub-tabs
@@ -2079,6 +2070,15 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
 
   // ── 4 main tabs ───────────────────────────────────────────
   const mainTabs=[["home","Home"],["match","Match"],["stash","Stash"],["projects","Projects"],["more","More"]];
+
+  // Auth gate — MUST be after all hooks
+  if(supabase && !user){
+    return <AuthScreen
+      supabase={supabase}
+      onGuest={onGuestMode||(() => {})}
+      onSignIn={onSignIn}
+    />;
+  }
 
   return(
     <div className="app-shell">
