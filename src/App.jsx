@@ -2841,13 +2841,13 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
                     <button className="btn"
                       style={{fontSize:11,padding:"5px 10px",color:"#C0392B",borderColor:"#C0392B"}}
                       onClick={async()=>{
-                        await supabase.auth.signOut();
-                        // Clear any cached session data
-                        localStorage.removeItem('supabase.auth.token');
-                        Object.keys(localStorage).forEach(key => {
-                          if(key.startsWith('sb-')) localStorage.removeItem(key);
-                        });
-                        window.location.href = window.location.origin;
+                        // Sign out from Supabase
+                        await supabase.auth.signOut({ scope: 'global' });
+                        // Nuclear option — clear all localStorage
+                        localStorage.clear();
+                        sessionStorage.clear();
+                        // Hard redirect to force fresh load
+                        window.location.replace(window.location.origin);
                       }}>
                       Sign Out
                     </button>
