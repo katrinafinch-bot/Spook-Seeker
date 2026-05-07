@@ -2837,7 +2837,15 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
                     </button>
                     <button className="btn"
                       style={{fontSize:11,padding:"5px 10px",color:"#C0392B",borderColor:"#C0392B"}}
-                      onClick={()=>supabase.auth.signOut()}>
+                      onClick={async()=>{
+                        await supabase.auth.signOut();
+                        // Clear any cached session data
+                        localStorage.removeItem('supabase.auth.token');
+                        Object.keys(localStorage).forEach(key => {
+                          if(key.startsWith('sb-')) localStorage.removeItem(key);
+                        });
+                        window.location.href = window.location.origin;
+                      }}>
                       Sign Out
                     </button>
                   </div>
