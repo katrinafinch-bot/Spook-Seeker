@@ -1105,6 +1105,226 @@ function CrossRefTab({ supaAllThreads, threadBrands, brandKeyMap, addToUserInven
 }
 
 // ─────────────────────────────────────────────────────────────
+// USER PROFILE PAGE
+// ─────────────────────────────────────────────────────────────
+function ProfilePage({ supabase, user, onBack }) {
+  const [profile, setProfile]     = useState(null);
+  const [editing, setEditing]     = useState(false);
+  const [saving, setSaving]       = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [message, setMessage]     = useState("");
+  const [form, setForm]           = useState({
+    display_name:"", hometown:"", state_province:"",
+    country:"United States", email_public:false, bio:"", avatar_color:"#0D5252"
+  });
+  const fileRef = React.useRef(null);
+
+  // Avatar color options matching brand palette
+  const avatarColors = [
+    "#0D5252","#1A4D9B","#2D5A1B","#E8A800","#C97B00",
+    "#6B3FA0","#C0392B","#1A7070","#2563C0","#3D7226"
+  ];
+
+  const countries = [
+    "United States","Canada","United Kingdom","Australia","New Zealand",
+    "Germany","France","Netherlands","Japan","South Korea","Brazil",
+    "Mexico","Sweden","Norway","Denmark","Finland","Ireland","Other"
+  ];
+
+  useEffect(()=>{
+    if(!supabase||!user) return;
+    loadProfile();
+  },[supabase,user]);
+
+  async function loadProfile(){
+    const{data}=await supabase.from("profiles").select("*").eq("id",user.id).maybeSingle();
+    if(data){
+      setProfile(data);
+      setForm({
+        display_name: data.display_name||"",
+        hometown:     data.hometown||"",
+        state_province:data.state_province||"",
+        country:      data.country||"United States",
+        email_public: data.email_public||false,
+        bio:          data.bio||"",
+        avatar_color: data.avatar_color||"#0D5252"
+      });
+    }
+  }
+
+  async function saveProfile(){
+    if(!supabase||!user) return;
+    setSaving(true);
+    const{error}=await supabase.from("profiles").upsert({
+      id: user.id,
+      ...form,
+      updated_at: new Date().toISOString()
+    });
+    if(error) setMessage("Error saving: "+error.message);
+    else{ setMessage("Profile saved!"); setEditing(false); loadProfile(); }
+    setSaving(false);
+  }
+
+  async function uploadAvatar(e){
+    const file = e.target.files?.[0];
+    if(!file||!supabase||!user) return;
+    if(file.size > 2*1024*1024){ setMessage("Image must be under 2MB"); return; }
+    setUploading(true);
+    const ext  = file.name.split(".").pop();
+    const path = `${user.id}/avatar.${ext}`;
+    const{error:upErr}=await supabase.storage.from("avatars").upload(path, file, {upsert:true});
+    if(upErr){ setMessage("Upload error: "+upErr.message); setUploading(false); return; }
+    const{data:{publicUrl}}=supabase.storage.from("avatars").getPublicUrl(path);
+    const{error:profErr}=await supabase.from("profiles").upsert({id:user.id,avatar_url:publicUrl,updated_at:new Date().toISOString()});
+    if(profErr) setMessage("Error saving avatar: "+profErr.message);
+    else{ setMessage("Avatar updated!"); loadProfile(); }
+    setUploading(false);
+  }
+
+  // Generate initials avatar
+  const initials = (profile?.display_name||user?.email||"?").slice(0,2).toUpperCase();
+  const avatarUrl = profile?.avatar_url;
+  const avatarBg  = profile?.avatar_color||"#0D5252";
+
+  return(
+    <div>
+      <div className="card">
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}>
+          <button className="btn" style={{fontSize:12,padding:"5px 10px"}} onClick={onBack}>← Back</button>
+          <h2 style={{margin:0,flex:1}}>My Profile</h2>
+          {!editing&&<button className="btn active" style={{fontSize:12,padding:"5px 10px"}} onClick={()=>setEditing(true)}>✎ Edit</button>}
+        </div>
+
+        {message&&<div style={{padding:"8px 12px",marginBottom:12,borderRadius:"var(--r-sm)",
+          background:"var(--leaf-light)",border:"1px solid var(--leaf)",color:"var(--leaf)",fontSize:13}}>
+          {message}
+        </div>}
+
+        {/* Avatar */}
+        <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:20}}>
+          <div style={{position:"relative"}}>
+            {avatarUrl
+              ? <img src={avatarUrl} alt="avatar"
+                  style={{width:80,height:80,borderRadius:"50%",objectFit:"cover",
+                    border:"3px solid var(--gold)",boxShadow:"var(--shadow-md)"}}/>
+              : <div style={{width:80,height:80,borderRadius:"50%",
+                  background:avatarBg,display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:28,fontWeight:800,color:"white",fontFamily:"Playfair Display,serif",
+                  border:"3px solid var(--gold)",boxShadow:"var(--shadow-md)"}}>
+                  {initials}
+                </div>
+            }
+            {editing&&(
+              <button onClick={()=>fileRef.current?.click()}
+                style={{position:"absolute",bottom:-4,right:-4,
+                  width:26,height:26,borderRadius:"50%",border:"2px solid white",
+                  background:"var(--teal)",color:"white",fontSize:13,
+                  cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                {uploading?"…":"📷"}
+              </button>
+            )}
+            <input ref={fileRef} type="file" accept="image/*"
+              style={{display:"none"}} onChange={uploadAvatar}/>
+          </div>
+          <div>
+            <div style={{fontFamily:"Playfair Display,serif",fontSize:18,fontWeight:700,color:"var(--teal)"}}>
+              {profile?.display_name||user?.email}
+            </div>
+            <div className="muted" style={{fontSize:12}}>
+              {[profile?.hometown,profile?.state_province,profile?.country].filter(Boolean).join(", ")||"Location not set"}
+            </div>
+            {profile?.is_premium&&(
+              <span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:6,
+                background:"var(--sun-pale)",color:"var(--teal)",border:"1px solid var(--border-sun)"}}>
+                ✦ Premium Member
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* View mode */}
+        {!editing&&profile&&(
+          <div className="list-box">
+            {profile.bio&&<div style={{marginBottom:8,fontStyle:"italic",color:"var(--ink-soft)"}}>{profile.bio}</div>}
+            <div><b>Email:</b> {profile.email_public ? user.email : "Private"}</div>
+            <div><b>Member since:</b> {new Date(profile.created_at||Date.now()).toLocaleDateString()}</div>
+          </div>
+        )}
+
+        {/* Edit mode */}
+        {editing&&(
+          <div>
+            <label style={{fontSize:12}}>Display Name
+              <input className="input" value={form.display_name}
+                onChange={e=>setForm({...form,display_name:e.target.value})}
+                placeholder="How you appear to others"/>
+            </label>
+            <label style={{fontSize:12}}>Bio
+              <input className="input" value={form.bio}
+                onChange={e=>setForm({...form,bio:e.target.value})}
+                placeholder="Tell the community about yourself…"/>
+            </label>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <label style={{fontSize:12}}>Hometown
+                <input className="input" value={form.hometown}
+                  onChange={e=>setForm({...form,hometown:e.target.value})}
+                  placeholder="City"/>
+              </label>
+              <label style={{fontSize:12}}>State / Province
+                <input className="input" value={form.state_province}
+                  onChange={e=>setForm({...form,state_province:e.target.value})}
+                  placeholder="State or Province"/>
+              </label>
+            </div>
+            <label style={{fontSize:12}}>Country
+              <select className="input" value={form.country}
+                onChange={e=>setForm({...form,country:e.target.value})}>
+                {countries.map(c=><option key={c}>{c}</option>)}
+              </select>
+            </label>
+            <label className="check">
+              <input type="checkbox" checked={form.email_public}
+                onChange={e=>setForm({...form,email_public:e.target.checked})}/>
+              Make my email visible to other members
+            </label>
+
+            {/* Avatar color picker — shown when no photo uploaded */}
+            {!avatarUrl&&(
+              <div style={{marginBottom:14}}>
+                <label style={{fontSize:12,display:"block",marginBottom:6}}>Avatar Color</label>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {avatarColors.map(color=>(
+                    <div key={color}
+                      onClick={()=>setForm({...form,avatar_color:color})}
+                      style={{
+                        width:32,height:32,borderRadius:"50%",background:color,
+                        cursor:"pointer",
+                        border:form.avatar_color===color?"3px solid var(--gold)":"3px solid transparent",
+                        boxShadow:form.avatar_color===color?"var(--shadow-md)":"none",
+                        transition:"all 0.15s"
+                      }}/>
+                  ))}
+                </div>
+                <p className="muted" style={{fontSize:11,marginTop:4}}>
+                  Or tap the camera icon above to upload a photo.
+                </p>
+              </div>
+            )}
+
+            <div className="button-row">
+              <button className="btn active" onClick={saveProfile} disabled={saving} style={{flex:1}}>
+                {saving?"Saving…":"Save Profile"}
+              </button>
+              <button className="btn" onClick={()=>{setEditing(false);setMessage("");}}>Cancel</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // BARCODE SCANNER
 // ─────────────────────────────────────────────────────────────
 function BarcodeScanner({ supabase, userId, onAddToStash, onColorMatch }) {
@@ -1601,7 +1821,9 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
 
       // Already sorted by color_name from Supabase query, but re-sort to be safe
       results.sort((a,b)=>a.color_name.localeCompare(b.color_name));
-      return results.slice(0,100);
+      // Guest mode: Isacord only, 10 results max
+      if(!user) results = results.filter(t=>t.brand_key==="isacord").slice(0,10);
+      return user ? results.slice(0,100) : results;
     }
 
     // Local fallback (no Supabase) — use local thread-library.json
@@ -2180,8 +2402,15 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
                 </div>
 
                 <label>Thread Brand
-                  <select className="input" value={matchBrand} onChange={e=>setMatchBrand(e.target.value)}>
-                    {threadBrands.map(([label])=><option key={label}>{label}</option>)}
+                  {!user&&<span style={{fontSize:11,color:"var(--sky-cobalt)",marginLeft:6,fontWeight:600}}>
+                    (Sign in to access all 26 brands)
+                  </span>}
+                  <select className="input" value={matchBrand} onChange={e=>setMatchBrand(e.target.value)}
+                    disabled={!user}>
+                    {user
+                      ? threadBrands.map(([label])=><option key={label}>{label}</option>)
+                      : <option>Isacord</option>
+                    }
                   </select>
                 </label>
                 <label>{t("match_color_family",lang)}
@@ -2215,6 +2444,27 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
                   </div>
                 )}
               </div>
+              {/* Guest limit banner */}
+              {!user&&filteredMatchResults.length>=10&&(
+                <div style={{
+                  padding:"14px 16px",marginBottom:8,
+                  background:"linear-gradient(135deg, var(--teal) 0%, var(--sky-cobalt) 100%)",
+                  borderRadius:"var(--r)",color:"white",textAlign:"center"
+                }}>
+                  <div style={{fontFamily:"Playfair Display,serif",fontSize:15,fontWeight:700,marginBottom:6}}>
+                    Showing 10 of {supaAllThreads.filter(t=>t.brand_key==="isacord").length}+ Isacord colors
+                  </div>
+                  <p style={{fontSize:12,opacity:0.9,marginBottom:10}}>
+                    Sign in to search all {supaAllThreads.length.toLocaleString()} thread colors across 26 brands, use cross-referencing, and save your stash.
+                  </p>
+                  <button className="btn"
+                    style={{background:"var(--sun-gold)",color:"var(--teal)",border:"none",fontWeight:800,padding:"8px 20px"}}
+                    onClick={()=>onGuestMode&&onGuestMode(false)}>
+                    Sign In / Create Account
+                  </button>
+                </div>
+              )}
+
               {filteredMatchResults.length===0&&(matchQuery.trim()||colorFamilyKey!=="All")&&(
                 <div className="card">
                   <p className="muted">
@@ -2258,6 +2508,20 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
 
           {/* ── Cross-Reference tab ── */}
           {subTab==="crossref"&&(
+            !user ? (
+              <div className="card" style={{textAlign:"center",padding:"32px 20px"}}>
+                <div style={{fontSize:32,marginBottom:10}}>⇄</div>
+                <div style={{fontFamily:"Playfair Display,serif",fontSize:16,fontWeight:700,color:"var(--teal)",marginBottom:8}}>
+                  Cross-Reference Requires an Account
+                </div>
+                <p className="muted" style={{fontSize:13,marginBottom:16}}>
+                  Sign in to find the nearest color equivalent between any two thread brands using our 486,000+ pre-computed matches.
+                </p>
+                <button className="btn active" onClick={()=>onGuestMode&&onGuestMode(false)}>
+                  Sign In / Create Account
+                </button>
+              </div>
+            ) : (
             <CrossRefTab
               supaAllThreads={supaAllThreads}
               threadBrands={threadBrands}
@@ -2268,6 +2532,7 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
               hexToFamilyKey={hexToFamilyKey}
               settings={settings}
             />
+            )
           )}
 
           {/* Camera match */}
@@ -2333,6 +2598,20 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
           STASH — all inventory in one place
           ══════════════════════════════════════════════════════ */}
       {tab==="stash"&&(
+        !user ? (
+          <div className="card" style={{textAlign:"center",padding:"32px 20px"}}>
+            <div style={{fontSize:32,marginBottom:10}}>◈</div>
+            <div style={{fontFamily:"Playfair Display,serif",fontSize:16,fontWeight:700,color:"var(--teal)",marginBottom:8}}>
+              Your Stash Requires an Account
+            </div>
+            <p className="muted" style={{fontSize:13,marginBottom:16}}>
+              Sign in to track your threads, machines, rulers, presser feet, and accessories.
+            </p>
+            <button className="btn active" onClick={()=>onGuestMode&&onGuestMode(false)}>
+              Sign In / Create Account
+            </button>
+          </div>
+        ) : (
         <UniversalStash
           supabase={supabase} userId={userId}
           shoppingList={shoppingList} mergedShoppingList={mergedShoppingList}
@@ -2348,6 +2627,20 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
           PROJECTS
           ══════════════════════════════════════════════════════ */}
       {tab==="projects"&&(
+        !user ? (
+          <div className="card" style={{textAlign:"center",padding:"32px 20px"}}>
+            <div style={{fontSize:32,marginBottom:10}}>◉</div>
+            <div style={{fontFamily:"Playfair Display,serif",fontSize:16,fontWeight:700,color:"var(--teal)",marginBottom:8}}>
+              Projects Require an Account
+            </div>
+            <p className="muted" style={{fontSize:13,marginBottom:16}}>
+              Sign in to create projects and build thread lists for your quilts and embroidery.
+            </p>
+            <button className="btn active" onClick={()=>onGuestMode&&onGuestMode(false)}>
+              Sign In / Create Account
+            </button>
+          </div>
+        ) : (
         <div>
           {/* Header */}
           <div className="card" style={{padding:"14px 18px"}}>
@@ -2487,6 +2780,7 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
             </p>
           </div>
         </div>
+        )
       )}
 
       {/* ══════════════════════════════════════════════════════
@@ -2496,7 +2790,7 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
         <>
           {/* More sub-nav */}
           <div className="sub-tab-row">
-            {[["machines","⚙️ Machines"],["accuquilt","◈ AccuQuilt"],["feet","👟 Feet"],["rulers","📐 Rulers"],["help","? Help"],["settings","⚙ Settings"]].map(([key,label])=>(
+            {[["machines","⚙️ Machines"],["accuquilt","◈ AccuQuilt"],["feet","👟 Feet"],["rulers","📐 Rulers"],["help","? Help"],["profile","👤 Profile"],["settings","⚙ Settings"]].map(([key,label])=>(
               <button key={key} className={`sub-tab ${moreSubTab===key?"active":""}`} onClick={()=>setMoreSubTab(key)}>{label}</button>
             ))}
           </div>
@@ -2518,6 +2812,10 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
             </div>
           )}
 
+          {moreSubTab==="profile"&&(
+            <ProfilePage supabase={supabase} user={user} onBack={()=>setMoreSubTab("settings")}/>
+          )}
+
           {moreSubTab==="settings"&&(
             <div className="card">
               <h2>{t("settings_title",lang)}</h2>
@@ -2532,11 +2830,17 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
                     </div>
                     <div className="muted" style={{fontSize:11}}>{user.email}</div>
                   </div>
-                  <button className="btn"
-                    style={{fontSize:11,padding:"5px 10px",color:"#C0392B",borderColor:"#C0392B"}}
-                    onClick={()=>supabase.auth.signOut()}>
-                    Sign Out
-                  </button>
+                  <div style={{display:"flex",gap:6}}>
+                    <button className="btn" style={{fontSize:11,padding:"5px 10px"}}
+                      onClick={()=>setMoreSubTab("profile")}>
+                      ✎ Profile
+                    </button>
+                    <button className="btn"
+                      style={{fontSize:11,padding:"5px 10px",color:"#C0392B",borderColor:"#C0392B"}}
+                      onClick={()=>supabase.auth.signOut()}>
+                      Sign Out
+                    </button>
+                  </div>
                 </div>
               ):(
                 <div style={{padding:"10px 14px",background:"var(--sun-pale)",borderRadius:"var(--r-sm)",
