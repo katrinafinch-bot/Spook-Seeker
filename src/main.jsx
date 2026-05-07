@@ -14,28 +14,15 @@ function Root() {
   const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
-    // Get current session on load
+    // Check existing session first
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       setAuthReady(true);
     });
 
-    // Listen for auth changes — only reload on explicit sign-in/out actions
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if(event === "SIGNED_IN") {
-        setUser(session?.user ?? null);
-        // Small delay to let Supabase finish setting the session cookie
-        setTimeout(() => window.location.reload(), 100);
-      }
-      if(event === "SIGNED_OUT") {
-        setUser(null);
-        // Reload to show auth screen
-        setTimeout(() => window.location.reload(), 100);
-      }
-      // TOKEN_REFRESHED, USER_UPDATED etc — just update state, no reload
-      if(event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
-        setUser(session?.user ?? null);
-      }
+    // Update user state on any auth change — no reloads
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
     });
 
     return () => subscription.unsubscribe();

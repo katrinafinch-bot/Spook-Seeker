@@ -1440,6 +1440,11 @@ export default function App({ supabase, user }) {
   // Expose supabase on window so child components (CrossRefTab) can use precomputed table
   if(supabase) window._supabaseClient = supabase;
 
+  // When user signs in, exit guest mode automatically
+  useEffect(()=>{
+    if(user) setGuestMode(false);
+  },[user]);
+
   // Show auth screen if not logged in and not in guest mode
   if(supabase && !user && !guestMode){
     return <AuthScreen supabase={supabase} onGuest={()=>setGuestMode(true)}/>;
