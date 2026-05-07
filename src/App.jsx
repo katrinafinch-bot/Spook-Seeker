@@ -1197,7 +1197,7 @@ function BarcodeScanner({ supabase, userId, onAddToStash, onColorMatch }) {
 // ─────────────────────────────────────────────────────────────
 // AUTH SCREEN — Sign in / Sign up / Guest mode
 // ─────────────────────────────────────────────────────────────
-function AuthScreen({ supabase, onGuest }) {
+function AuthScreen({ supabase, onGuest, onSignIn }) {
   const [mode, setMode]         = useState("signin"); // signin | signup | reset
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
@@ -1209,8 +1209,9 @@ function AuthScreen({ supabase, onGuest }) {
   async function handleSignIn(e){
     e.preventDefault();
     setLoading(true); setError(""); setMessage("");
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if(error) setError(error.message);
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if(error){ setError(error.message); setLoading(false); return; }
+    if(data?.user && onSignIn) onSignIn(data.user);
     setLoading(false);
   }
 
@@ -1434,20 +1435,18 @@ function AuthScreen({ supabase, onGuest }) {
 // ─────────────────────────────────────────────────────────────
 // MAIN APP
 // ─────────────────────────────────────────────────────────────
-export default function App({ supabase, user }) {
+export default function App({ supabase, user, onGuestMode, onSignIn }) {
   const userId = user?.id||null;
-  const [guestMode, setGuestMode] = useState(false);
   // Expose supabase on window so child components (CrossRefTab) can use precomputed table
   if(supabase) window._supabaseClient = supabase;
 
-  // When user signs in, exit guest mode automatically
-  useEffect(()=>{
-    if(user) setGuestMode(false);
-  },[user]);
-
-  // Show auth screen if not logged in and not in guest mode
-  if(supabase && !user && !guestMode){
-    return <AuthScreen supabase={supabase} onGuest={()=>setGuestMode(true)}/>;
+  // Show auth screen if no user (main.jsx controls this via screen state)
+  if(supabase && !user){
+    return <AuthScreen
+      supabase={supabase}
+      onGuest={onGuestMode||(() => {})}
+      onSignIn={onSignIn}
+    />;
   }
 
   // ── State ─────────────────────────────────────────────────
