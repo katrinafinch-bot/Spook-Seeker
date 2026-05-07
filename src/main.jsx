@@ -20,18 +20,21 @@ function Root() {
       setAuthReady(true);
     });
 
-    // Listen for auth changes
+    // Listen for auth changes — only reload on explicit sign-in/out actions
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      const newUser = session?.user ?? null;
-      setUser(newUser);
-
-      // On sign-in, reload the page so all data loads fresh with the authenticated session
       if(event === "SIGNED_IN") {
-        window.location.reload();
+        setUser(session?.user ?? null);
+        // Small delay to let Supabase finish setting the session cookie
+        setTimeout(() => window.location.reload(), 100);
       }
-      // On sign-out, reload to show auth screen cleanly
       if(event === "SIGNED_OUT") {
-        window.location.reload();
+        setUser(null);
+        // Reload to show auth screen
+        setTimeout(() => window.location.reload(), 100);
+      }
+      // TOKEN_REFRESHED, USER_UPDATED etc — just update state, no reload
+      if(event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
+        setUser(session?.user ?? null);
       }
     });
 
