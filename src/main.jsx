@@ -4,41 +4,34 @@ import { createClient } from "@supabase/supabase-js";
 import App from "./App.jsx";
 import "./styles.css";
 
-// ── Supabase client ────────────────────────────────────────────────────────
-// These values are safe to be public (they are your anon/publishable keys)
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Supabase client — anon key is safe to be public
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://sbupkbtvaujvwwslqjnd.supabase.co";
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_-EzJs1Sxr6SklOUjZ0j-ow_hc1zHedq";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// ── Root component handles auth state ─────────────────────────────────────
 function Root() {
-  const [user, setUser] = useState(null);
+  const [user, setUser]         = useState(null);
   const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
-    // Get current session on load
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       setAuthReady(true);
     });
-
-    // Listen for sign-in / sign-out events
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
     });
-
     return () => subscription.unsubscribe();
   }, []);
 
-  // Don't render until we know the auth state
   if (!authReady) {
     return (
       <div style={{
-        display: "flex", alignItems: "center", justifyContent: "center",
-        height: "100vh", fontFamily: "sans-serif", color: "#888", fontSize: 14
+        minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center",
+        background:"#EAE4CE", fontFamily:"Nunito,sans-serif", color:"#5C6E6E", fontSize:16
       }}>
-        Loading Haberdash Haven…
+        ✿ Loading Haberdash Haven…
       </div>
     );
   }
