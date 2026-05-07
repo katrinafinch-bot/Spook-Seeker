@@ -10,19 +10,20 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "sb_publisha
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 function Root() {
-  const [user, setUser]     = useState(null);
+  const [user, setUser]         = useState(null);
   const [authReady, setAuthReady] = useState(false);
+  const [guestMode, setGuestMode] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      console.log("Session check:", session ? "logged in as " + session.user.email : "no session");
       setUser(session?.user ?? null);
       setAuthReady(true);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      console.log("Auth change:", _event, session?.user?.email);
       setUser(session?.user ?? null);
+      // If user signs out, exit guest mode and show auth screen
+      if(_event === "SIGNED_OUT") setGuestMode(false);
     });
 
     return () => subscription.unsubscribe();
@@ -39,8 +40,23 @@ function Root() {
     );
   }
 
-  // Always pass user state to App — App handles showing auth screen when user is null
-  return <App supabase={supabase} user={user} onGuestMode={()=>setUser("guest")} onSignIn={(u)=>setUser(u)} />;
+  // Show app if logged in OR in guest mode
+  if (user || guestMode) {
+    return <App
+      supabase={supabase}
+      user={user}
+      onGuestMode={()=>setGuestMode(true)}
+      onSignIn={(u)=>{ setUser(u); setGuestMode(false); }}
+    />;
+  }
+
+  // No session, not guest — show auth screen via App
+  return <App
+    supabase={supabase}
+    user={null}
+    onGuestMode={()=>setGuestMode(true)}
+    onSignIn={(u)=>{ setUser(u); setGuestMode(false); }}
+  />;
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(

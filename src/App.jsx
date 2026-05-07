@@ -1660,10 +1660,13 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
   // Expose supabase on window so child components (CrossRefTab) can use precomputed table
   if(supabase) window._supabaseClient = supabase;
 
+  // Always start on Home tab
+  useEffect(()=>{ setTab("home"); },[]);
+
   // ── State ─────────────────────────────────────────────────
   const [tab, setTab]                 = useState("home");
   const [subTab, setSubTab]           = useState("thread"); // match sub-tabs
-  const [moreSubTab, setMoreSubTab]   = useState("machines"); // more sub-tabs
+  const [moreSubTab, setMoreSubTab]   = useState("machines");
   const [threads, setThreads]         = useState(starterThreads);
   const [supaAllThreads, setSupaAllThreads] = useState([]); // unified thread_library — all brands
   const [form, setForm]               = useState(emptyForm);
@@ -2459,7 +2462,7 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
                   </p>
                   <button className="btn"
                     style={{background:"var(--sun-gold)",color:"var(--teal)",border:"none",fontWeight:800,padding:"8px 20px"}}
-                    onClick={()=>onGuestMode&&onGuestMode(false)}>
+                    onClick={()=>{ if(supabase) { window.location.href=window.location.origin; } }}>
                     Sign In / Create Account
                   </button>
                 </div>
@@ -2517,7 +2520,7 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
                 <p className="muted" style={{fontSize:13,marginBottom:16}}>
                   Sign in to find the nearest color equivalent between any two thread brands using our 486,000+ pre-computed matches.
                 </p>
-                <button className="btn active" onClick={()=>onGuestMode&&onGuestMode(false)}>
+                <button className="btn active" onClick={()=>{ if(supabase) { window.location.href=window.location.origin; } }}>
                   Sign In / Create Account
                 </button>
               </div>
@@ -2607,7 +2610,7 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
             <p className="muted" style={{fontSize:13,marginBottom:16}}>
               Sign in to track your threads, machines, rulers, presser feet, and accessories.
             </p>
-            <button className="btn active" onClick={()=>onGuestMode&&onGuestMode(false)}>
+            <button className="btn active" onClick={()=>{ if(supabase) { window.location.href=window.location.origin; } }}>
               Sign In / Create Account
             </button>
           </div>
@@ -2636,7 +2639,7 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
             <p className="muted" style={{fontSize:13,marginBottom:16}}>
               Sign in to create projects and build thread lists for your quilts and embroidery.
             </p>
-            <button className="btn active" onClick={()=>onGuestMode&&onGuestMode(false)}>
+            <button className="btn active" onClick={()=>{ if(supabase) { window.location.href=window.location.origin; } }}>
               Sign In / Create Account
             </button>
           </div>
