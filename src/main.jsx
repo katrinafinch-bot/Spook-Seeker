@@ -10,33 +10,25 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "sb_publisha
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 function Root() {
-  // Three states: "loading" | "auth" | "app"
-  const [screen, setScreen] = useState("loading");
   const [user, setUser]     = useState(null);
+  const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
-    // Check if already logged in from a previous session
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        setUser(session.user);
-        setScreen("app");
-      } else {
-        setScreen("auth"); // No session — show login screen
-      }
+      console.log("Session check:", session ? "logged in as " + session.user.email : "no session");
+      setUser(session?.user ?? null);
+      setAuthReady(true);
     });
 
-    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        setUser(session.user);
-        setScreen("app");
-      }
+      console.log("Auth change:", _event, session?.user?.email);
+      setUser(session?.user ?? null);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  if (screen === "loading") {
+  if (!authReady) {
     return (
       <div style={{
         minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center",
@@ -47,19 +39,8 @@ function Root() {
     );
   }
 
-  if (screen === "auth") {
-    return (
-      <App
-        supabase={supabase}
-        user={null}
-        onGuestMode={()=>setScreen("app")}
-        onSignIn={(u)=>{ setUser(u); setScreen("app"); }}
-      />
-    );
-  }
-
-  // screen === "app"
-  return <App supabase={supabase} user={user} />;
+  // Always pass user state to App — App handles showing auth screen when user is null
+  return <App supabase={supabase} user={user} onGuestMode={()=>setUser("guest")} onSignIn={(u)=>setUser(u)} />;
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(
