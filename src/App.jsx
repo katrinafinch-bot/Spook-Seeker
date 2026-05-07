@@ -1728,10 +1728,11 @@ export default function App({ supabase, user, isGuest, onGuestMode, onSignIn }) 
         from+=pageSize;
       }
       if(allRows.length>0){
-        console.log(`✓ Loaded ${allRows.length} thread colors`);
+        console.log(`✓ Loaded ${allRows.length} thread colors from thread_library`);
         setSupaAllThreads(allRows);
         setThreadLoadStatus("ok");
       } else {
+        console.warn("thread_library returned 0 rows — check RLS policy");
         setThreadLoadStatus("empty");
       }
     }
@@ -1822,11 +1823,13 @@ export default function App({ supabase, user, isGuest, onGuestMode, onSignIn }) 
         return true;
       });
 
-      // Already sorted by color_name from Supabase query, but re-sort to be safe
       results.sort((a,b)=>a.color_name.localeCompare(b.color_name));
-      // Guest mode: Isacord only, 10 results max
-      if(!user) results = results.filter(t=>t.brand_key==="isacord").slice(0,10);
-      return (user && !isGuest) ? results.slice(0,100) : results;
+      // Guest restrictions: Isacord only, 10 results max
+      if(!user || isGuest){
+        results = results.filter(t=>t.brand_key==="isacord");
+        return results.slice(0,10);
+      }
+      return results.slice(0,100);
     }
 
     // Local fallback (no Supabase) — use local thread-library.json
@@ -1845,7 +1848,7 @@ export default function App({ supabase, user, isGuest, onGuestMode, onSignIn }) 
     });
     results.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
     return results.slice(0,100);
-  },[supaAllThreads,threads,matchQuery,subTab,matchBrand,colorFamilyKey]);
+  },[supaAllThreads,threads,matchQuery,subTab,matchBrand,colorFamilyKey,user,isGuest]);
 
   const cameraMatches = useMemo(()=>{
     if(!cameraSample)return[];
