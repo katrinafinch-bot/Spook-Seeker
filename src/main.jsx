@@ -45,6 +45,7 @@ function Root() {
     return <App
       supabase={supabase}
       user={user}
+      isGuest={guestMode&&!user}
       onGuestMode={()=>setGuestMode(true)}
       onSignIn={(u)=>{ setUser(u); setGuestMode(false); }}
     />;
@@ -54,6 +55,7 @@ function Root() {
   return <App
     supabase={supabase}
     user={null}
+    isGuest={false}
     onGuestMode={()=>setGuestMode(true)}
     onSignIn={(u)=>{ setUser(u); setGuestMode(false); }}
   />;

@@ -1655,7 +1655,7 @@ function AuthScreen({ supabase, onGuest, onSignIn }) {
 // ─────────────────────────────────────────────────────────────
 // MAIN APP
 // ─────────────────────────────────────────────────────────────
-export default function App({ supabase, user, onGuestMode, onSignIn }) {
+export default function App({ supabase, user, isGuest, onGuestMode, onSignIn }) {
   const userId = user?.id||null;
   // Expose supabase on window so child components (CrossRefTab) can use precomputed table
   if(supabase) window._supabaseClient = supabase;
@@ -1826,7 +1826,7 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
       results.sort((a,b)=>a.color_name.localeCompare(b.color_name));
       // Guest mode: Isacord only, 10 results max
       if(!user) results = results.filter(t=>t.brand_key==="isacord").slice(0,10);
-      return user ? results.slice(0,100) : results;
+      return (user && !isGuest) ? results.slice(0,100) : results;
     }
 
     // Local fallback (no Supabase) — use local thread-library.json
@@ -2409,10 +2409,11 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
                     (Sign in to access all 26 brands)
                   </span>}
                   <select className="input" value={matchBrand} onChange={e=>setMatchBrand(e.target.value)}
-                    disabled={!user}>
-                    {user
+                    disabled={!user||isGuest}>
+                    {(user&&!isGuest)
                       ? threadBrands.map(([label])=><option key={label}>{label}</option>)
                       : <option>Isacord</option>
+                    
                     }
                   </select>
                 </label>
@@ -2448,7 +2449,7 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
                 )}
               </div>
               {/* Guest limit banner */}
-              {!user&&filteredMatchResults.length>=10&&(
+              {(!user||isGuest)&&filteredMatchResults.length>=10&&(
                 <div style={{
                   padding:"14px 16px",marginBottom:8,
                   background:"linear-gradient(135deg, var(--teal) 0%, var(--sky-cobalt) 100%)",
@@ -2511,7 +2512,7 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
 
           {/* ── Cross-Reference tab ── */}
           {subTab==="crossref"&&(
-            !user ? (
+            (!user||isGuest) ? (
               <div className="card" style={{textAlign:"center",padding:"32px 20px"}}>
                 <div style={{fontSize:32,marginBottom:10}}>⇄</div>
                 <div style={{fontFamily:"Playfair Display,serif",fontSize:16,fontWeight:700,color:"var(--teal)",marginBottom:8}}>
@@ -2601,7 +2602,7 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
           STASH — all inventory in one place
           ══════════════════════════════════════════════════════ */}
       {tab==="stash"&&(
-        !user ? (
+        (!user||isGuest) ? (
           <div className="card" style={{textAlign:"center",padding:"32px 20px"}}>
             <div style={{fontSize:32,marginBottom:10}}>◈</div>
             <div style={{fontFamily:"Playfair Display,serif",fontSize:16,fontWeight:700,color:"var(--teal)",marginBottom:8}}>
@@ -2630,7 +2631,7 @@ export default function App({ supabase, user, onGuestMode, onSignIn }) {
           PROJECTS
           ══════════════════════════════════════════════════════ */}
       {tab==="projects"&&(
-        !user ? (
+        (!user||isGuest) ? (
           <div className="card" style={{textAlign:"center",padding:"32px 20px"}}>
             <div style={{fontSize:32,marginBottom:10}}>◉</div>
             <div style={{fontFamily:"Playfair Display,serif",fontSize:16,fontWeight:700,color:"var(--teal)",marginBottom:8}}>
