@@ -76,27 +76,40 @@ function colorDistance(a,b){
 }
 
 // Find nearest color in a given brand by hex distance
-function findNearestInBrand(hex, targetBrandKey, allThreads){
-  if(!hex||!targetBrandKey||!allThreads.length) return null;
-  const rgb = hexToRgb(hex);
-  if(!rgb) return null;
+function findNearestInBrand(hexOrThread, targetBrandKey, allThreads){
+  if(!targetBrandKey||!allThreads.length) return null;
+  // Get source RGB — prefer r,g,b columns, fall back to hex
+  let srcRgb;
+  if(hexOrThread && typeof hexOrThread==="object" && hexOrThread.r!=null){
+    srcRgb = {r:hexOrThread.r, g:hexOrThread.g, b:hexOrThread.b};
+  } else {
+    srcRgb = hexToRgb(typeof hexOrThread==="string" ? hexOrThread : hexOrThread?.hex_color);
+  }
+  if(!srcRgb) return null;
   let best = null, bestDist = Infinity;
   for(const t of allThreads){
-    if(t.brand_key !== targetBrandKey || !t.hex_color) continue;
-    const dist = colorDistance(rgb, hexToRgb(t.hex_color));
+    if(t.brand_key !== targetBrandKey) continue;
+    // Use r,g,b if available, else parse hex
+    const tRgb = t.r!=null ? {r:t.r,g:t.g,b:t.b} : hexToRgb(t.hex_color);
+    if(!tRgb) continue;
+    const dist = colorDistance(srcRgb, tRgb);
     if(dist < bestDist){ bestDist = dist; best = t; }
   }
   return best;
 }
 
 // Always returns an ENGLISH key from COLOR_FAMILY_KEYS — never a translated string
-// Accepts a hex string, OR a thread object with hex_color/r/g/b fields
+// Accepts a hex string, OR a thread object with r/g/b or hex_color fields
 function hexToFamilyKey(hexOrThread){
   let rgb;
   if(hexOrThread && typeof hexOrThread==="object"){
-    // passed a thread object — extract color
-    if(hexOrThread.r!=null) rgb={r:hexOrThread.r,g:hexOrThread.g,b:hexOrThread.b};
-    else rgb=hexToRgb(hexOrThread.hex_color||hexOrThread.hex||hexOrThread.swatch);
+    // Prefer r,g,b integer columns — most accurate, no parsing needed
+    if(hexOrThread.r!=null && hexOrThread.g!=null && hexOrThread.b!=null){
+      rgb={r:hexOrThread.r, g:hexOrThread.g, b:hexOrThread.b};
+    } else {
+      // Fall back to hex_color string
+      rgb=hexToRgb(hexOrThread.hex_color||hexOrThread.hex||hexOrThread.swatch);
+    }
   } else {
     rgb=hexToRgb(hexOrThread);
   }
@@ -2166,7 +2179,9 @@ export default function App({ supabase, user, isGuest, onGuestMode, onSignIn }) 
 
     const isAllBrandsRow = thread.brand_key !== undefined && thread.color_code !== undefined;
     const isSupaThread   = !isAllBrandsRow && thread.code !== undefined && thread.color_name !== undefined && !thread.brands;
-    const hex            = thread.hex_color||thread.hex||thread.swatch||"#CCCCCC";
+    // Use hex_color or construct from r,g,b columns
+    const hex = thread.hex_color || thread.hex || thread.swatch ||
+      (thread.r!=null ? `#${[thread.r,thread.g,thread.b].map(v=>v.toString(16).padStart(2,'0')).join('')}` : "#CCCCCC");
     const displayName    = isAllBrandsRow
       ? `${thread.color_code} — ${thread.color_name}`
       : isSupaThread ? `${thread.code} — ${thread.color_name}` : thread.name;
