@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import starterThreads from "./data/thread-library.json";
 import { t, LANGUAGES, getColorFamilies } from "./i18n.js";
+import { ProjectsTab } from "./ProjectsTab.jsx";
 
 // ─────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -2649,161 +2650,19 @@ export default function App({ supabase, user, isGuest, onGuestMode, onSignIn }) 
           PROJECTS
           ══════════════════════════════════════════════════════ */}
       {tab==="projects"&&(
-        (!user||isGuest) ? (
-          <div className="card" style={{textAlign:"center",padding:"32px 20px"}}>
-            <div style={{fontSize:32,marginBottom:10}}>◉</div>
-            <div style={{fontFamily:"Playfair Display,serif",fontSize:16,fontWeight:700,color:"var(--teal)",marginBottom:8}}>
-              Projects Require an Account
-            </div>
-            <p className="muted" style={{fontSize:13,marginBottom:16}}>
-              Sign in to create projects and build thread lists for your quilts and embroidery.
-            </p>
-            <button className="btn active" onClick={()=>{ if(supabase) { window.location.href=window.location.origin; } }}>
-              Sign In / Create Account
-            </button>
-          </div>
-        ) : (
-        <div>
-          {/* Header */}
-          <div className="card" style={{padding:"14px 18px"}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <h2 style={{margin:0}}>Projects</h2>
-              <button className="btn active" onClick={()=>setShowNewProject(v=>!v)}>
-                {showNewProject?"✕ Cancel":"+ New Project"}
-              </button>
-            </div>
-
-            {/* New project form */}
-            {showNewProject&&(
-              <div style={{marginTop:14,paddingTop:14,borderTop:"1.5px solid var(--border-teal)"}}>
-                <label>Project Name
-                  <input className="input" value={newProjectForm.name}
-                    onChange={e=>setNewProjectForm({...newProjectForm,name:e.target.value})}
-                    placeholder="e.g. Autumn Leaves Quilt"/>
-                </label>
-                <label>Status
-                  <select className="input" value={newProjectForm.status}
-                    onChange={e=>setNewProjectForm({...newProjectForm,status:e.target.value})}>
-                    {["Planning","In Progress","On Hold","Complete"].map(s=><option key={s}>{s}</option>)}
-                  </select>
-                </label>
-                <label>Notes
-                  <input className="input" value={newProjectForm.notes}
-                    onChange={e=>setNewProjectForm({...newProjectForm,notes:e.target.value})}
-                    placeholder="Optional notes…"/>
-                </label>
-                <button className="btn active" style={{width:"100%"}} onClick={createProject}>
-                  Create Project
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Project list */}
-          {projects.map(project=>(
-            <div key={project.id} className="card"
-              style={{borderColor:project.id===selectedProjectId?"var(--teal)":undefined,
-                borderWidth:project.id===selectedProjectId?2:undefined}}>
-              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
-                <div style={{flex:1}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                    <span style={{
-                      fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:6,
-                      background:project.status==="Complete"?"var(--leaf-light)":
-                                 project.status==="In Progress"?"var(--sky-pale)":
-                                 project.status==="On Hold"?"#FFF8E1":"var(--teal-pale)",
-                      color:project.status==="Complete"?"var(--leaf)":
-                            project.status==="In Progress"?"var(--sky-cobalt)":
-                            project.status==="On Hold"?"var(--sun-amber)":"var(--teal)",
-                      border:"1px solid var(--border-teal)"
-                    }}>{project.status}</span>
-                  </div>
-                  <div className="thread-name">{project.name}</div>
-                  <div className="muted" style={{fontSize:12}}>
-                    {project.requiredThreads.length} thread{project.requiredThreads.length!==1?"s":""}
-                  </div>
-                  {project.notes&&<div className="muted" style={{fontSize:12,fontStyle:"italic",marginTop:3}}>{project.notes}</div>}
-                </div>
-                <button
-                  className={`btn ${project.id===selectedProjectId?"active":""}`}
-                  style={{fontSize:11,padding:"5px 10px",flexShrink:0}}
-                  onClick={()=>setSelectedProjectId(project.id)}>
-                  {project.id===selectedProjectId?"✓ Active":"Select"}
-                </button>
-              </div>
-
-              {/* Thread list for this project */}
-              {project.requiredThreads.length>0&&(
-                <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid var(--border-teal)"}}>
-                  {project.requiredThreads.map(item=>(
-                    <div key={item.id} style={{
-                      display:"flex",alignItems:"center",gap:10,
-                      padding:"6px 0",borderBottom:"1px solid var(--teal-pale)"
-                    }}>
-                      {item.hex_color&&(
-                        <div style={{
-                          width:28,height:28,borderRadius:"50%",flexShrink:0,
-                          background:item.hex_color,
-                          border:"2px solid rgba(255,255,255,0.6)",
-                          boxShadow:"0 1px 4px rgba(0,0,0,0.15)"
-                        }}/>
-                      )}
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontWeight:700,fontSize:13}}>
-                          {item.brand&&`${item.brand} `}{item.code} — {item.name}
-                        </div>
-                        {item.weight&&<div className="muted" style={{fontSize:11}}>{item.fiber_type} {item.weight}</div>}
-                      </div>
-                      <button className="btn"
-                        style={{fontSize:11,padding:"4px 8px",color:"#C0392B",borderColor:"#C0392B",flexShrink:0}}
-                        onClick={()=>removeProjectThread(item.threadId)}>✕</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {project.requiredThreads.length===0&&(
-                <p className="muted" style={{fontSize:12,marginTop:8}}>
-                  No threads yet — use Match tab to add threads to this project.
-                </p>
-              )}
-            </div>
-          ))}
-
-          {/* Active project quick-add */}
-          <div className="card" style={{borderStyle:"dashed",borderColor:"var(--sun-amber)",background:"var(--sun-wash)"}}>
-            <div style={{fontWeight:700,color:"var(--teal)",marginBottom:10}}>
-              Add thread to: <span style={{color:"var(--sky-cobalt)"}}>{selectedProject?.name||"—"}</span>
-            </div>
-            <div className="button-row" style={{marginTop:0,marginBottom:10}}>
-              <button className={`btn ${projectEntryMode==="manual"?"active":""}`} onClick={()=>setProjectEntryMode("manual")}>Search</button>
-              <button className={`btn ${projectEntryMode==="scan"?"active":""}`} onClick={()=>setProjectEntryMode("scan")}>Code / Scan</button>
-            </div>
-            {projectEntryMode==="manual"?(
-              <div style={{display:"flex",gap:8}}>
-                <input className="input" style={{marginBottom:0,flex:1}}
-                  value={projectThreadInput}
-                  onChange={e=>setProjectThreadInput(e.target.value)}
-                  placeholder="color name, code…"
-                  onKeyDown={e=>e.key==="Enter"&&addProjectThreadFromManual()}/>
-                <button className="btn active" onClick={addProjectThreadFromManual}>Add</button>
-              </div>
-            ):(
-              <div style={{display:"flex",gap:8}}>
-                <input className="input" style={{marginBottom:0,flex:1}}
-                  value={projectScanInput}
-                  onChange={e=>setProjectScanInput(e.target.value)}
-                  placeholder="barcode or code"
-                  onKeyDown={e=>e.key==="Enter"&&addProjectThreadFromScan()}/>
-                <button className="btn active" onClick={addProjectThreadFromScan}>Add</button>
-              </div>
-            )}
-            <p className="muted" style={{fontSize:11,marginTop:8}}>
-              Tip: Use the Match tab to find a thread, then tap "Add to Project" to add it to your active project.
-            </p>
-          </div>
-        </div>
-        )
+        <ProjectsTab
+          supabase={supabase}
+          userId={userId}
+          user={user}
+          isGuest={isGuest}
+          selectedProjectId={selectedProjectId}
+          setSelectedProjectId={setSelectedProjectId}
+          addProjectRequiredThread={addProjectRequiredThread}
+          supaAllThreads={supaAllThreads}
+        />
       )}
+
+
 
       {/* ══════════════════════════════════════════════════════
           MORE — browse libraries + manage
