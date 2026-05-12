@@ -2644,6 +2644,7 @@ export default function App({ supabase, user, isGuest, onGuestMode, onSignIn }) 
           removeShoppingItem={removeShoppingItem}
           settings={settings}
         />
+        )
       )}
 
       {/* ══════════════════════════════════════════════════════
