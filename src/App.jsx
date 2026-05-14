@@ -333,7 +333,7 @@ function UniversalStash({ supabase, userId, shoppingList, mergedShoppingList, th
         supabase.from("user_inventory").select("spool_count,thread_library(id,brand,brand_key,color_code,color_name,hex_color,fiber_type,weight)").eq("user_id",userId),
         supabase.from("user_rulers").select("quantity,ruler_library(brand,model,shape,size_inches,material)").eq("user_id",userId),
         supabase.from("user_machines").select("machine_id,serial_number,purchase_date,purchase_price,dealer,warranty_until,user_notes,machine_library(id,brand,model,type,category,throat_space,fun_fact,is_computerized)").eq("user_id",userId),
-        supabase.from("user_dies").select("quantity,machine_library(id,brand,model,type,category)").eq("user_id",userId),
+        supabase.from("user_dies").select("quantity,accuquilt_library(id,product_name,product_type)").eq("user_id",userId),
         supabase.from("user_feet").select("quantity,feet_library(brand,foot_name,category,shank_type)").eq("user_id",userId),
       ]);
       // Accessories — stored in localStorage for now
@@ -495,8 +495,8 @@ function UniversalStash({ supabase, userId, shoppingList, mergedShoppingList, th
           {stash.dies.length===0
             ?<p className="muted">No dies yet — browse in More → AccuQuilt.</p>
             :stash.dies.map((item,i)=>{
-              const d=item.machine_library;if(!d)return null;
-              return<div key={i} className="sub-card"><b>{d.model}</b><p className="muted">AccuQuilt · {d.category}</p></div>;
+              const d=item.accuquilt_library||item.machine_library;if(!d)return null;
+              return<div key={i} className="sub-card"><b>{d.product_name}</b><p className="muted">AccuQuilt · {d.product_type}</p></div>;
             })
           }
         </div>
@@ -671,12 +671,12 @@ function AccuQuiltBrowser({ supabase, userId }) {
   const [owned,setOwned]=useState({});
   const [loading,setLoading]=useState(true);
   useEffect(()=>{ if(!supabase)return; fetchDies(); if(userId)fetchOwned(); },[supabase,userId]);
-  async function fetchDies(){ setLoading(true); const{data}=await supabase.from("machine_library").select("*").eq("brand","AccuQuilt").order("category").order("model"); setDies(data||[]); setLoading(false); }
-  async function fetchOwned(){ const{data}=await supabase.from("user_dies").select("machine_id").eq("user_id",userId); if(data){const m={};data.forEach(r=>{m[r.machine_id]=true;});setOwned(m);} }
+  async function fetchDies(){ setLoading(true); const{data}=await supabase.from("accuquilt_library").select("*").order("product_type").order("product_name"); setDies(data||[]); setLoading(false); }
+  async function fetchOwned(){ const{data}=await supabase.from("user_dies").select("accuquilt_id").eq("user_id",userId); if(data){const m={};data.forEach(r=>{m[r.accuquilt_id]=true;});setOwned(m);} }
   async function toggleDie(machineId){
     if(!userId||!supabase)return;
-    if(owned[machineId]){ await supabase.from("user_dies").delete().eq("user_id",userId).eq("machine_id",machineId); setOwned(prev=>{const n={...prev};delete n[machineId];return n;}); }
-    else{ await supabase.from("user_dies").upsert({user_id:userId,machine_id:machineId,quantity:1},{onConflict:"user_id,machine_id"}); setOwned(prev=>({...prev,[machineId]:true})); }
+    if(owned[machineId]){ await supabase.from("user_dies").delete().eq("user_id",userId).eq("accuquilt_id",machineId); setOwned(prev=>{const n={...prev};delete n[machineId];return n;}); }
+    else{ await supabase.from("user_dies").upsert({user_id:userId,accuquilt_id:machineId,quantity:1},{onConflict:"user_id,accuquilt_id"}); setOwned(prev=>({...prev,[machineId]:true})); }
   }
   if(loading)return<div className="card"><p className="muted">Loading AccuQuilt library…</p></div>;
   const grouped=dies.reduce((acc,d)=>{ const cat=d.category||"Other"; if(!acc[cat])acc[cat]=[]; acc[cat].push(d); return acc; },{});
