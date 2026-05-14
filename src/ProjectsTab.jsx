@@ -1,3 +1,5 @@
+import React from "react";
+
 // ─────────────────────────────────────────────────────────────
 // PROJECTS TAB — Full replacement component
 // Drop this into App.jsx replacing the {tab==="projects"&&(...)} block
