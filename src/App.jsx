@@ -679,7 +679,7 @@ function AccuQuiltBrowser({ supabase, userId }) {
     else{ await supabase.from("user_dies").upsert({user_id:userId,accuquilt_id:machineId,quantity:1},{onConflict:"user_id,accuquilt_id"}); setOwned(prev=>({...prev,[machineId]:true})); }
   }
   if(loading)return<div className="card"><p className="muted">Loading AccuQuilt library…</p></div>;
-  const grouped=dies.reduce((acc,d)=>{ const cat=d.category||"Other"; if(!acc[cat])acc[cat]=[]; acc[cat].push(d); return acc; },{});
+  const grouped=dies.reduce((acc,d)=>{ const cat=d.product_type||"Other"; if(!acc[cat])acc[cat]=[]; acc[cat].push(d); return acc; },{});
   return(
     <div>
       <div className="card"><h2>AccuQuilt Cutters & Dies</h2><p className="muted" style={{fontSize:13}}>Tap to add to your stash.</p></div>
@@ -692,8 +692,8 @@ function AccuQuiltBrowser({ supabase, userId }) {
               <div key={die.id} className="card" style={{borderColor:isOwned?"#1A5C1A":undefined}}>
                 <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
                   <div style={{flex:1}}>
-                    <div className="thread-name">{die.model}</div>
-                    {die.fun_fact&&<p style={{fontSize:12,margin:"4px 0 0",color:"#5C4A1E",lineHeight:1.4}}>{die.fun_fact.slice(0,140)}{die.fun_fact.length>140?"…":""}</p>}
+                    <div className="thread-name">{die.product_name}</div>
+                    {die.description&&<p style={{fontSize:12,margin:"4px 0 0",color:"#5C4A1E",lineHeight:1.4}}>{die.description}</p>}
                   </div>
                   <button className={`btn ${isOwned?"active":""}`} style={{flexShrink:0}} onClick={()=>toggleDie(die.id)}>{isOwned?"✓ Owned":"+ Add"}</button>
                 </div>
@@ -702,7 +702,7 @@ function AccuQuiltBrowser({ supabase, userId }) {
           })}
         </div>
       ))}
-      {dies.length===0&&<div className="card"><p className="muted">Run step 26 SQL to load AccuQuilt data.</p></div>}
+      {dies.length===0&&<div className="card"><p className="muted">No AccuQuilt products found.</p></div>}
     </div>
   );
 }
