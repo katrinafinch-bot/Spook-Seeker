@@ -670,39 +670,222 @@ function AccuQuiltBrowser({ supabase, userId }) {
   const [dies,setDies]=useState([]);
   const [owned,setOwned]=useState({});
   const [loading,setLoading]=useState(true);
+  const [search,setSearch]=useState("");
+  const [filterType,setFilterType]=useState("All");
+  const [filterCutter,setFilterCutter]=useState("All");
+  const [expandedId,setExpandedId]=useState(null);
+
   useEffect(()=>{ if(!supabase)return; fetchDies(); if(userId)fetchOwned(); },[supabase,userId]);
-  async function fetchDies(){ setLoading(true); const{data}=await supabase.from("accuquilt_library").select("*").order("product_type").order("product_name"); setDies(data||[]); setLoading(false); }
-  async function fetchOwned(){ const{data}=await supabase.from("user_dies").select("accuquilt_id").eq("user_id",userId); if(data){const m={};data.forEach(r=>{m[r.accuquilt_id]=true;});setOwned(m);} }
-  async function toggleDie(machineId){
-    if(!userId||!supabase)return;
-    if(owned[machineId]){ await supabase.from("user_dies").delete().eq("user_id",userId).eq("accuquilt_id",machineId); setOwned(prev=>{const n={...prev};delete n[machineId];return n;}); }
-    else{ await supabase.from("user_dies").upsert({user_id:userId,accuquilt_id:machineId,quantity:1},{onConflict:"user_id,accuquilt_id"}); setOwned(prev=>({...prev,[machineId]:true})); }
+
+  async function fetchDies(){
+    setLoading(true);
+    const{data}=await supabase.from("accuquilt_library").select("*").order("product_type").order("product_name");
+    setDies(data||[]);
+    setLoading(false);
   }
+
+  async function fetchOwned(){
+    const{data}=await supabase.from("user_dies").select("accuquilt_id").eq("user_id",userId);
+    if(data){const m={};data.forEach(r=>{m[r.accuquilt_id]=true;});setOwned(m);}
+  }
+
+  async function toggleDie(id){
+    if(!userId||!supabase)return;
+    if(owned[id]){
+      await supabase.from("user_dies").delete().eq("user_id",userId).eq("accuquilt_id",id);
+      setOwned(prev=>{const n={...prev};delete n[id];return n;});
+    } else {
+      await supabase.from("user_dies").upsert({user_id:userId,accuquilt_id:id,quantity:1},{onConflict:"user_id,accuquilt_id"});
+      setOwned(prev=>({...prev,[id]:true}));
+    }
+  }
+
   if(loading)return<div className="card"><p className="muted">Loading AccuQuilt library…</p></div>;
-  const grouped=dies.reduce((acc,d)=>{ const cat=d.product_type||"Other"; if(!acc[cat])acc[cat]=[]; acc[cat].push(d); return acc; },{});
+
+  const types=["All",...new Set(dies.map(d=>d.product_type).filter(Boolean))];
+  const cutters=["All","GO!","GO! Big","GO! Bolt","GO! Me","Studio 2"];
+
+  const filtered=dies.filter(d=>{
+    const q=search.toLowerCase();
+    const matchSearch=!q||
+      d.product_name?.toLowerCase().includes(q)||
+      d.sku?.toLowerCase().includes(q)||
+      d.shape?.toLowerCase().includes(q)||
+      d.size_info?.toLowerCase().includes(q)||
+      d.description?.toLowerCase().includes(q);
+    const matchType=filterType==="All"||d.product_type===filterType;
+    const matchCutter=filterCutter==="All"||d.compatible_cutter?.includes(filterCutter);
+    return matchSearch&&matchType&&matchCutter;
+  });
+
+  const grouped=filtered.reduce((acc,d)=>{
+    const cat=d.product_type||"Other";
+    if(!acc[cat])acc[cat]=[];
+    acc[cat].push(d);
+    return acc;
+  },{});
+
+  const ownedCount=Object.keys(owned).length;
+
   return(
     <div>
-      <div className="card"><h2>AccuQuilt Cutters & Dies</h2><p className="muted" style={{fontSize:13}}>Tap to add to your stash.</p></div>
+      {/* Header */}
+      <div className="card" style={{padding:"14px 18px"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+          <div>
+            <h2 style={{margin:0}}>AccuQuilt Cutters & Dies</h2>
+            <div className="muted" style={{fontSize:12,marginTop:2}}>
+              {dies.length} products · {ownedCount} owned · Tap + Add to track in your stash
+            </div>
+          </div>
+        </div>
+        {/* Search */}
+        <input className="input" style={{marginBottom:8}} value={search}
+          onChange={e=>setSearch(e.target.value)}
+          placeholder="Search by name, SKU, shape, size…"/>
+        {/* Filters */}
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          <select className="input" style={{marginBottom:0,flex:1,fontSize:12}}
+            value={filterType} onChange={e=>setFilterType(e.target.value)}>
+            {types.map(t=><option key={t}>{t}</option>)}
+          </select>
+          <select className="input" style={{marginBottom:0,flex:1,fontSize:12}}
+            value={filterCutter} onChange={e=>setFilterCutter(e.target.value)}>
+            {cutters.map(c=><option key={c}>{c}</option>)}
+          </select>
+        </div>
+        {(search||filterType!=="All"||filterCutter!=="All")&&(
+          <div style={{fontSize:12,color:"var(--teal)",marginTop:6}}>
+            Showing {filtered.length} of {dies.length} products
+            <button className="btn" style={{fontSize:11,padding:"2px 8px",marginLeft:8}}
+              onClick={()=>{setSearch("");setFilterType("All");setFilterCutter("All");}}>
+              Clear
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Product list */}
       {Object.entries(grouped).map(([cat,items])=>(
         <div key={cat}>
-          <div className="section-label">{cat}</div>
+          <div className="section-label">{cat} ({items.length})</div>
           {items.map(die=>{
             const isOwned=owned[die.id];
+            const isExpanded=expandedId===die.id;
             return(
-              <div key={die.id} className="card" style={{borderColor:isOwned?"#1A5C1A":undefined}}>
+              <div key={die.id} className="card"
+                style={{borderColor:isOwned?"var(--leaf)":undefined,
+                  borderWidth:isOwned?2:undefined,padding:"12px 14px"}}>
                 <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
-                  <div style={{flex:1}}>
-                    <div className="thread-name">{die.product_name}</div>
-                    {die.description&&<p style={{fontSize:12,margin:"4px 0 0",color:"#5C4A1E",lineHeight:1.4}}>{die.description}</p>}
+                  <div style={{flex:1,minWidth:0}}>
+                    {/* Name + BOB badge */}
+                    <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:4}}>
+                      <div className="thread-name" style={{fontSize:13,margin:0}}>{die.product_name}</div>
+                      {die.is_block_on_board&&(
+                        <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,
+                          background:"var(--teal-pale)",color:"var(--teal)",fontWeight:700,flexShrink:0}}>
+                          BOB
+                        </span>
+                      )}
+                      {isOwned&&(
+                        <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,
+                          background:"var(--leaf-wash)",color:"var(--leaf)",fontWeight:700,flexShrink:0}}>
+                          ✓ Owned
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Quick info chips */}
+                    <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:4}}>
+                      {die.sku&&(
+                        <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,
+                          background:"#F5F5F5",color:"#666",border:"1px solid #E0E0E0"}}>
+                          SKU: {die.sku}
+                        </span>
+                      )}
+                      {die.size_info&&(
+                        <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,
+                          background:"var(--sky-pale)",color:"var(--sky-cobalt)",border:"1px solid var(--sky-pale)"}}>
+                          {die.size_info}
+                        </span>
+                      )}
+                      {die.finished_block_size&&(
+                        <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,
+                          background:"var(--sun-pale)",color:"var(--sun-amber)",border:"1px solid var(--border-sun)"}}>
+                          {die.finished_block_size} finished
+                        </span>
+                      )}
+                      {die.msrp&&(
+                        <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,
+                          background:"var(--leaf-wash)",color:"var(--leaf)",border:"1px solid var(--leaf-light)"}}>
+                          {die.msrp}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Compatible cutters */}
+                    {die.compatible_cutter&&(
+                      <div style={{fontSize:11,color:"var(--muted-warm)",marginBottom:2}}>
+                        ✂ {die.compatible_cutter}
+                      </div>
+                    )}
+
+                    {/* Mat required */}
+                    {die.mat_required&&(
+                      <div style={{fontSize:11,color:"var(--muted-warm)",marginBottom:2}}>
+                        🟦 Mat: {die.mat_required}
+                      </div>
+                    )}
+
+                    {/* Description — expandable */}
+                    {die.description&&(
+                      <div style={{marginTop:4}}>
+                        <p style={{fontSize:12,margin:0,color:"#5C4A1E",lineHeight:1.4,
+                          display:isExpanded?"block":"-webkit-box",
+                          WebkitLineClamp:isExpanded?undefined:2,
+                          WebkitBoxOrient:"vertical",
+                          overflow:isExpanded?"visible":"hidden"}}>
+                          {die.description}
+                        </p>
+                        {die.description.length>80&&(
+                          <button style={{background:"none",border:"none",color:"var(--teal)",
+                            fontSize:11,cursor:"pointer",padding:"2px 0"}}
+                            onClick={()=>setExpandedId(isExpanded?null:die.id)}>
+                            {isExpanded?"▲ Less":"▼ More"}
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Notes */}
+                    {isExpanded&&die.notes&&(
+                      <div style={{marginTop:6,padding:"6px 8px",background:"var(--linen)",
+                        borderRadius:6,fontSize:11,color:"var(--muted-warm)",fontStyle:"italic"}}>
+                        💡 {die.notes}
+                      </div>
+                    )}
                   </div>
-                  <button className={`btn ${isOwned?"active":""}`} style={{flexShrink:0}} onClick={()=>toggleDie(die.id)}>{isOwned?"✓ Owned":"+ Add"}</button>
+
+                  {/* Add button */}
+                  <button className={`btn ${isOwned?"active":""}`}
+                    style={{flexShrink:0,fontSize:11,padding:"6px 12px"}}
+                    onClick={()=>toggleDie(die.id)}>
+                    {isOwned?"✓ Owned":"+ Add"}
+                  </button>
                 </div>
               </div>
             );
           })}
         </div>
       ))}
-      {dies.length===0&&<div className="card"><p className="muted">No AccuQuilt products found.</p></div>}
+      {filtered.length===0&&(
+        <div className="card" style={{textAlign:"center",padding:"24px"}}>
+          <p className="muted">No products match your search.</p>
+          <button className="btn" onClick={()=>{setSearch("");setFilterType("All");setFilterCutter("All");}}>
+            Clear Filters
+          </button>
+        </div>
+      )}
     </div>
   );
 }
