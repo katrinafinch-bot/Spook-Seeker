@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState, useRef, useCallback } from "react"
 import starterThreads from "./data/thread-library.json";
 import { t, LANGUAGES, getColorFamilies } from "./i18n.js";
 import { ProjectsTab } from "./ProjectsTab.jsx";
+import InsuranceReportBuilder from "./InsuranceReportBuilder.jsx";
 
 // ─────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -316,11 +317,12 @@ function MachineStashSection({ machines, supabase, userId, onRefresh }) {
 // UNIVERSAL STASH
 // ─────────────────────────────────────────────────────────────
 function UniversalStash({ supabase, userId, shoppingList, mergedShoppingList, threads,
-  updateSpools, updateInventoryTarget, addManualShoppingItem, removeShoppingItem, settings }) {
+  updateSpools, updateInventoryTarget, addManualShoppingItem, removeShoppingItem, settings, userSettings }) {
   const [activeSection, setActiveSection] = useState("threads");
   const [stash, setStash] = useState({threads:[],rulers:[],machines:[],dies:[],feet:[],accessories:[]});
   const [counts, setCounts] = useState({threads:0,rulers:0,machines:0,dies:0,feet:0,accessories:0});
   const [loading, setLoading] = useState(true);
+  const [showReport, setShowReport] = useState(false);
   // Accessories state
   const [accForm, setAccForm]   = useState({name:"",quantity:"1",notes:""});
   const [showAccForm, setShowAccForm] = useState(false);
@@ -391,7 +393,20 @@ function UniversalStash({ supabase, userId, shoppingList, mergedShoppingList, th
     <div>
       <div className="stash-banner">
         <h2>Your Stash</h2>
-        <span className="count-chip">{totalItems} items</span>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span className="count-chip">{totalItems} items</span>
+          <button
+            onClick={()=>setShowReport(true)}
+            style={{
+              padding:"3px 10px",borderRadius:"var(--r-full)",
+              border:"1.5px solid var(--teal)",
+              background:"var(--teal-pale)",color:"var(--teal)",
+              fontSize:11,fontWeight:800,cursor:"pointer",
+              fontFamily:"Nunito, sans-serif"
+            }}>
+            📋 Insurance Report
+          </button>
+        </div>
       </div>
 
       {/* Section pills */}
@@ -561,12 +576,18 @@ function UniversalStash({ supabase, userId, shoppingList, mergedShoppingList, th
           ))}
         </div>
       )}
+
+      {/* Insurance Report Modal */}
+      {showReport&&(
+        <InsuranceReportBuilder
+          onClose={()=>setShowReport(false)}
+          userId={userId}
+          showValuesEnabled={userSettings?.showValuesInReports??false}
+        />
+      )}
     </div>
   );
 }
-
-// ─────────────────────────────────────────────────────────────
-// MACHINES BROWSER
 // ─────────────────────────────────────────────────────────────
 function MachinesBrowser({ supabase, userId }) {
   const [machines,setMachines]   = useState([]);
@@ -2289,7 +2310,7 @@ export default function App({ supabase, user, isGuest, onGuestMode, onSignIn }) 
   const [supaAllThreads, setSupaAllThreads] = useState([]); // unified thread_library — all brands
   const [form, setForm]               = useState(emptyForm);
   const [message, setMessage]         = useState("");
-  const [settings, setSettings]       = useState(()=>{ const saved=localStorage.getItem("hh_settings"); return saved?JSON.parse(saved):{showBarcodes:true,showWeights:true,autoAddZeroInventoryToShoppingList:true,defaultMatchMode:"thread",defaultBrand:"Isacord",crossRefBrand:""}; });
+  const [settings, setSettings]       = useState(()=>{ const saved=localStorage.getItem("hh_settings"); return saved?JSON.parse(saved):{showBarcodes:true,showWeights:true,autoAddZeroInventoryToShoppingList:true,defaultMatchMode:"thread",defaultBrand:"Isacord",crossRefBrand:"",showValuesInReports:false}; });
   const [syncMeta, setSyncMeta]       = useState({ appVersion:APP_VERSION,libraryVersion:"1.0.0",remoteLibraryVersion:"1.0.0",status:"Ready",lastSynced:"Never",hasUpdate:false });
   const [lang, setLang]               = useState(()=>localStorage.getItem("hh_lang")||"en-US");
   useEffect(()=>{localStorage.setItem("hh_lang",lang);},[lang]);
@@ -3247,6 +3268,7 @@ export default function App({ supabase, user, isGuest, onGuestMode, onSignIn }) 
           addManualShoppingItem={addManualShoppingItem}
           removeShoppingItem={removeShoppingItem}
           settings={settings}
+          userSettings={settings}
         />
         )
       )}
@@ -3354,6 +3376,14 @@ export default function App({ supabase, user, isGuest, onGuestMode, onSignIn }) 
               <label className="check"><input type="checkbox" checked={settings.showBarcodes} onChange={e=>setSettings({...settings,showBarcodes:e.target.checked})}/> {t("settings_show_barcodes",lang)}</label>
               <label className="check"><input type="checkbox" checked={settings.showWeights} onChange={e=>setSettings({...settings,showWeights:e.target.checked})}/> {t("settings_show_weights",lang)}</label>
               <label className="check"><input type="checkbox" checked={settings.autoAddZeroInventoryToShoppingList} onChange={e=>setSettings({...settings,autoAddZeroInventoryToShoppingList:e.target.checked})}/> {t("settings_auto_shop",lang)}</label>
+              <label className="check">
+                <input type="checkbox" checked={settings.showValuesInReports||false}
+                  onChange={e=>setSettings({...settings,showValuesInReports:e.target.checked})}/>
+                Show item values in insurance reports
+                <span className="muted" style={{display:"block",fontSize:11,marginTop:2,marginLeft:22}}>
+                  Enables purchase price &amp; estimated value fields on insurance printouts.
+                </span>
+              </label>
               <label>Default Thread Brand
                 <select className="input" value={settings.defaultBrand||"Isacord"} onChange={e=>{setSettings({...settings,defaultBrand:e.target.value});setMatchBrand(e.target.value);}}>
                   {threadBrands.map(([label])=><option key={label}>{label}</option>)}

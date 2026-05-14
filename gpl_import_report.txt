@@ -1,0 +1,137 @@
+HABERDASH HAVEN — GPL Import Report v3
+Generated: 2026-05-09T18:11:29.900Z
+=================================================================
+Total palettes processed: 75
+Existing threads updated: 3250
+New brands found:         47
+New colors to import:     13569
+
+=================================================================
+PALETTE DETAILS (★ = new brand auto-mapped)
+
+★ NEW ARC Polyester: 288 colors | code:0 name:0 new:288
+★ NEW ARC Rayon: 288 colors | code:0 name:0 new:288
+★ NEW Admelody Polyester: 320 colors | code:0 name:0 new:320
+★ NEW Admelody Rayon: 420 colors | code:0 name:0 new:420
+✓ Anchor: 423 colors | code:0 name:0 new:423
+✓ Aurifil Lana: 106 colors | code:0 name:28 new:78
+✓ Aurifil Mako: 158 colors | code:158 name:0 new:0
+✓ Aurifil Polyester: 204 colors | code:0 name:49 new:155
+✓ Aurifil Rayon: 180 colors | code:0 name:48 new:132
+✓ Aurifil Royal: 499 colors | code:0 name:131 new:368
+★ NEW BFC Polyester: 320 colors | code:0 name:0 new:320
+★ NEW Brildor AC: 120 colors | code:0 name:0 new:120
+★ NEW Brildor CO: 70 colors | code:0 name:0 new:70
+★ NEW Brildor MF: 210 colors | code:0 name:0 new:210
+★ NEW Brildor NY: 180 colors | code:0 name:0 new:180
+★ NEW Brildor PB: 260 colors | code:0 name:0 new:260
+✓ Brother Country: 61 colors | code:8 name:14 new:39
+✓ Brother Embroidery: 61 colors | code:11 name:10 new:40
+★ NEW Brothread 40: 40 colors | code:0 name:0 new:40
+★ NEW Brothread 80: 78 colors | code:0 name:0 new:78
+✓ Coats Alcazar Jazz: 304 colors | code:31 name:103 new:170
+✓ Coats Alcazar: 500 colors | code:44 name:150 new:306
+★ NEW Coats Sylko USA: 303 colors | code:0 name:0 new:303
+★ NEW Coats Sylko: 399 colors | code:0 name:0 new:399
+✓ DMC: 458 colors | code:0 name:0 new:458
+★ NEW Embroidex: 258 colors | code:0 name:0 new:258
+★ NEW Emmel: 521 colors | code:0 name:0 new:521
+✓ Fil-Tec Glide: 213 colors | code:1 name:35 new:177
+✓ Floriani Polyester: 286 colors | code:0 name:75 new:211
+✓ FuFu Polyester: 713 colors | code:0 name:0 new:713
+✓ FuFu Rayon: 713 colors | code:0 name:0 new:713
+✓ Gunold Polyester: 300 colors | code:62 name:29 new:209
+✓ Gutermann Creativ Dekor: 200 colors | code:0 name:56 new:144
+✓ Hemingworth: 294 colors | code:236 name:15 new:43
+✓ Isacord Polyester: 398 colors | code:390 name:0 new:8
+★ NEW Isafil Rayon: 286 colors | code:0 name:0 new:286
+★ NEW Isalon Polyester: 414 colors | code:0 name:0 new:414
+★ NEW Janome: 78 colors | code:0 name:0 new:78
+★ NEW King Star: 430 colors | code:0 name:0 new:430
+★ NEW MTB - Embroidex: 107 colors | code:0 name:0 new:107
+✓ Madeira Burmilana: 121 colors | code:0 name:36 new:85
+✓ Madeira Matt: 161 colors | code:0 name:37 new:124
+✓ Madeira Polyneon: 349 colors | code:1 name:69 new:279
+✓ Madeira Rayon: 357 colors | code:197 name:49 new:111
+★ NEW Magnifico: 200 colors | code:0 name:0 new:200
+✓ Marathon Polyester: 301 colors | code:0 name:45 new:256
+★ NEW Marathon Rayon V3: 384 colors | code:0 name:0 new:384
+★ NEW Marathon Rayon: 317 colors | code:0 name:0 new:317
+★ NEW Metro: 168 colors | code:0 name:0 new:168
+✓ Mettler Embroidery: 152 colors | code:0 name:47 new:105
+✓ Mettler Poly Sheen: 351 colors | code:20 name:71 new:260
+★ NEW Outback Embroidery Rayon: 100 colors | code:0 name:0 new:100
+★ NEW Poly X40: 286 colors | code:0 name:0 new:286
+★ NEW Princess: 120 colors | code:0 name:0 new:120
+★ NEW RAL: 194 colors | code:0 name:0 new:194
+★ NEW Radiant Rayon: 102 colors | code:0 name:0 new:102
+✓ Robison-Anton Polyester: 452 colors | code:437 name:2 new:13
+✓ Robison-Anton Rayon: 419 colors | code:400 name:1 new:18
+★ NEW Royal Polyester: 473 colors | code:0 name:0 new:473
+★ NEW Royal Viscose Rayon: 494 colors | code:0 name:0 new:494
+★ NEW Sigma: 150 colors | code:0 name:0 new:150
+★ NEW Simthread Glow In The Dark 15 Colors: 15 colors | code:0 name:0 new:15
+✓ Simthread Polyester 63 Brother Colors: 63 colors | code:0 name:0 new:63
+★ NEW Simthread Polyester: 107 colors | code:0 name:0 new:107
+★ NEW Simthread Rayon: 384 colors | code:0 name:0 new:384
+✓ Sulky Polyester: 907 colors | code:0 name:0 new:907
+✓ Sulky Rayon: 289 colors | code:127 name:22 new:140
+★ NEW Swist Rayon: 227 colors | code:0 name:0 new:227
+✓ Threadart: 223 colors | code:0 name:0 new:223
+★ NEW Tristar Polyester: 298 colors | code:0 name:0 new:298
+★ NEW Tristar Rayon: 406 colors | code:0 name:0 new:406
+★ NEW Viking Palette: 29 colors | code:0 name:0 new:29
+★ NEW Vyapar Rayon: 288 colors | code:0 name:0 new:288
+✓ Wonderfil Polyester: 170 colors | code:0 name:3 new:167
+✓ Wonderfil Rayon: 342 colors | code:0 name:2 new:340
+
+=================================================================
+NEW BRANDS BEING IMPORTED
+
+  ARC Polyester (arc_polyester): 288 colors
+  ARC Rayon (arc_rayon): 288 colors
+  Admelody Polyester (admelody_polyester): 320 colors
+  Admelody Rayon (admelody_rayon): 420 colors
+  Anchor (anchor): 423 colors
+  BFC Polyester (bfc_polyester): 320 colors
+  Brildor AC (brildor_ac): 120 colors
+  Brildor CO (brildor_co): 70 colors
+  Brildor MF (brildor_mf): 210 colors
+  Brildor NY (brildor_ny): 180 colors
+  Brildor PB (brildor_pb): 260 colors
+  Brothread 40 (brothread_40): 40 colors
+  Brothread 80 (brothread_80): 78 colors
+  Coats Sylko USA (coats_sylko_usa): 303 colors
+  Coats Sylko (coats_sylko): 399 colors
+  DMC (dmc): 458 colors
+  Embroidex (embroidex): 258 colors
+  Emmel (emmel): 521 colors
+  FuFu Polyester (fufu_polyester): 713 colors
+  FuFu Rayon (fufu_rayon): 713 colors
+  Isafil Rayon (isafil_rayon): 286 colors
+  Isalon Polyester (isalon_polyester): 414 colors
+  Janome (janome): 78 colors
+  King Star (king_star): 430 colors
+  MTB - Embroidex (mtb_embroidex): 107 colors
+  Magnifico (magnifico): 200 colors
+  Marathon Rayon V3 (marathon_rayon_v3): 384 colors
+  Marathon Rayon (marathon_rayon): 317 colors
+  Metro (metro): 168 colors
+  Outback Embroidery Rayon (outback_embroidery_rayon): 100 colors
+  Poly X40 (poly_x40): 286 colors
+  Princess (princess): 120 colors
+  RAL (ral): 194 colors
+  Radiant Rayon (radiant_rayon): 102 colors
+  Royal Polyester (royal_polyester): 473 colors
+  Royal Viscose Rayon (royal_viscose_rayon): 494 colors
+  Sigma (sigma): 150 colors
+  Simthread Glow In The Dark 15 Colors (simthread_glow_in_the_dark_15_colors): 15 colors
+  Simthread Polyester (simthread_polyester): 107 colors
+  Simthread Rayon (simthread_rayon): 384 colors
+  Sulky Polyester (sulky_polyester): 907 colors
+  Swist Rayon (swist_rayon): 227 colors
+  Threadart (threadart): 223 colors
+  Tristar Polyester (tristar_polyester): 298 colors
+  Tristar Rayon (tristar_rayon): 406 colors
+  Viking Palette (viking_palette): 29 colors
+  Vyapar Rayon (vyapar_rayon): 288 colors

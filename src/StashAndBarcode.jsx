@@ -5,9 +5,9 @@
 
 // ── UNIVERSAL STASH TAB ────────────────────────────────────────────────────
 // Replace your existing stash tab content with this component.
-// Props: userId (string), supabase (client)
+// Props: userId (string), supabase (client), userSettings (object)
 
-function UniversalStash({ userId, supabase }) {
+function UniversalStash({ userId, supabase, userSettings }) {
   const [activeSection, setActiveSection] = React.useState('threads')
   const [stash, setStash] = React.useState({
     threads: [], rulers: [], machines: [], dies: [], feet: []
@@ -16,6 +16,7 @@ function UniversalStash({ userId, supabase }) {
   const [counts, setCounts] = React.useState({
     threads: 0, rulers: 0, machines: 0, dies: 0, feet: 0
   })
+  const [showReport, setShowReport] = React.useState(false)
 
   React.useEffect(() => {
     if (!userId) return
@@ -99,10 +100,25 @@ function UniversalStash({ userId, supabase }) {
           fontWeight: 700, color: '#1A5C1A' }}>
           Your Stash
         </span>
-        <span style={{ fontSize: '9px', fontWeight: 700, color: '#5C4A1E',
-          background: '#F5C400', padding: '2px 8px', borderRadius: '10px' }}>
-          {totalItems} items total
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontSize: '9px', fontWeight: 700, color: '#5C4A1E',
+            background: '#F5C400', padding: '2px 8px', borderRadius: '10px' }}>
+            {totalItems} items total
+          </span>
+          <button
+            onClick={() => setShowReport(true)}
+            title="Generate Insurance Report"
+            style={{
+              padding: '3px 9px', borderRadius: '10px',
+              border: '1.5px solid #0D5252',
+              background: '#EEF8F8', color: '#0D5252',
+              fontSize: '8.5px', fontWeight: 800,
+              cursor: 'pointer', fontFamily: 'Nunito, sans-serif',
+              display: 'flex', alignItems: 'center', gap: '3px'
+            }}>
+            📋 Insurance Report
+          </button>
+        </div>
       </div>
 
       {/* Section tabs */}
@@ -302,6 +318,15 @@ function UniversalStash({ userId, supabase }) {
           }
         </div>
       )}
+
+      {/* Insurance Report Modal */}
+      {showReport && (
+        <InsuranceReportBuilder
+          onClose={() => setShowReport(false)}
+          userId={userId}
+          showValuesEnabled={userSettings?.show_values_in_reports ?? false}
+        />
+      )}
     </div>
   )
 }
@@ -337,7 +362,6 @@ function BarcodeScanner({ userId, supabase, onAddToStash, onColorMatch }) {
     setError(null)
     setResult(null)
 
-    // Check BarcodeDetector support
     if (!('BarcodeDetector' in window)) {
       setError('Barcode scanning is not supported on this browser. Try Chrome on Android.')
       return
@@ -393,8 +417,7 @@ function BarcodeScanner({ userId, supabase, onAddToStash, onColorMatch }) {
 
   async function handleBarcode(barcode) {
     try {
-      // Look up barcode in database
-      const { data, error: lookupError } = await supabase
+      const { data } = await supabase
         .from('thread_barcodes')
         .select(`
           *,
@@ -407,12 +430,9 @@ function BarcodeScanner({ userId, supabase, onAddToStash, onColorMatch }) {
         .maybeSingle()
 
       if (data && data.thread_library_all) {
-        // Found in database!
         setResult({ barcode, thread: data.thread_library_all, confirmed: data.confirmed_count, found: true })
-        // Increment confirmation count (another user scanned and confirmed)
         await supabase.rpc('increment_barcode_confirmation', { p_barcode: barcode })
       } else {
-        // Not in database — go to color match
         setResult({ barcode, found: false })
       }
     } catch (e) {
@@ -424,9 +444,7 @@ function BarcodeScanner({ userId, supabase, onAddToStash, onColorMatch }) {
     if (!result?.thread || !userId) return
     setConfirming(true)
     try {
-      // Add to user_inventory if it's an Isacord thread
       const thread = result.thread
-      // Find the thread in thread_library by color code
       const { data: libraryThread } = await supabase
         .from('thread_library')
         .select('id')
@@ -450,7 +468,6 @@ function BarcodeScanner({ userId, supabase, onAddToStash, onColorMatch }) {
   }
 
   async function saveUnknownBarcode(brandKey, colorCode) {
-    // Called from color match screen after user identifies an unknown barcode
     if (!result?.barcode) return
     try {
       await supabase.from('thread_barcodes').upsert({
@@ -465,7 +482,6 @@ function BarcodeScanner({ userId, supabase, onAddToStash, onColorMatch }) {
     }
   }
 
-  // Cleanup on unmount
   React.useEffect(() => {
     return () => stopScan()
   }, [])
@@ -503,7 +519,6 @@ function BarcodeScanner({ userId, supabase, onAddToStash, onColorMatch }) {
             style={{ width: '100%', borderRadius: '10px', display: 'block' }}
             playsInline muted autoPlay
           />
-          {/* Scan overlay */}
           <div style={{
             position: 'absolute', inset: 0, display: 'flex',
             alignItems: 'center', justifyContent: 'center'
@@ -624,7 +639,6 @@ function BarcodeScanner({ userId, supabase, onAddToStash, onColorMatch }) {
 }
 
 // ── FEET BROWSER TAB ────────────────────────────────────────────────────────
-// New tab for browsing and adding presser feet to stash
 
 function FeetBrowser({ userId, supabase }) {
   const [feet, setFeet] = React.useState([])
@@ -698,7 +712,6 @@ function FeetBrowser({ userId, supabase }) {
 
   return (
     <div>
-      {/* Category filter */}
       <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', marginBottom: '8px' }}>
         {categories.map(cat => (
           <button
@@ -719,7 +732,6 @@ function FeetBrowser({ userId, supabase }) {
         {filtered.length} feet — tap to add to your stash
       </div>
 
-      {/* Feet list */}
       {filtered.map((foot) => {
         const c = catColor[foot.category] || catColor['General']
         const isOwned = added[foot.id]
