@@ -582,6 +582,7 @@ function UniversalStash({ supabase, userId, shoppingList, mergedShoppingList, th
         <InsuranceReportBuilder
           onClose={()=>setShowReport(false)}
           userId={userId}
+          supabase={supabase}
           showValuesEnabled={userSettings?.showValuesInReports??false}
         />
       )}

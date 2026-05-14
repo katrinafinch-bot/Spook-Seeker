@@ -226,76 +226,83 @@ const SECTIONS = [
 ];
 
 // ── Data fetchers ───────────────────────────────────────────────
-async function fetchReportData({ userId, sections, projectIds, showValues }) {
+async function fetchReportData({ supabase, userId, sections, projectIds }) {
   const data = {};
 
   if (sections.threads) {
-    const { data: rows } = await supabase
+    const { data: rows, error } = await supabase
       .from("user_inventory")
       .select(`spool_count, spool_size, notes, purchase_price, estimated_value, purchase_date,
-               thread_library(brand, color_name, color_code, weight)`)
+               thread_library(brand, color_name, color_code, weight, hex_color)`)
       .eq("user_id", userId);
+    if (error) console.error("threads fetch:", error);
     data.threads = rows || [];
   }
 
   if (sections.machines) {
-    const { data: rows } = await supabase
+    const { data: rows, error } = await supabase
       .from("user_machines")
       .select(`nickname, custom_brand, custom_model, serial_number, condition,
                purchase_price, purchase_date, current_value, appraisal_value, appraisal_date,
                insurance_rider, warranty_until, notes, user_notes, repair_history, service_date, service_notes,
-               machine_library(brand, model, machine_type)`)
+               machine_library(brand, model, type, category)`)
       .eq("user_id", userId);
+    if (error) console.error("machines fetch:", error);
     data.machines = rows || [];
   }
 
   if (sections.feet) {
-    const { data: rows } = await supabase
+    const { data: rows, error } = await supabase
       .from("user_feet")
       .select(`quantity, condition, notes, purchase_price, estimated_value, purchase_date,
-               feet_library(name, brand, type, compatibility)`)
+               feet_library(foot_name, brand, category, shank_type, description)`)
       .eq("user_id", userId);
+    if (error) console.error("feet fetch:", error);
     data.feet = rows || [];
   }
 
   if (sections.accuquilt) {
-    const { data: rows } = await supabase
+    const { data: rows, error } = await supabase
       .from("user_accuquilt")
       .select(`nickname, custom_product_name, serial_number, condition,
                purchase_price, purchase_date, current_value, warranty_until, notes,
-               accuquilt_library(name, product_type, sku)`)
+               accuquilt_library(product_name, product_type)`)
       .eq("user_id", userId);
+    if (error) console.error("accuquilt fetch:", error);
     data.accuquilt = rows || [];
   }
 
   if (sections.fabric) {
-    const { data: rows } = await supabase
+    const { data: rows, error } = await supabase
       .from("user_fabric")
       .select("*")
       .eq("user_id", userId);
+    if (error) console.error("fabric fetch:", error);
     data.fabric = rows || [];
   }
 
   if (sections.rulers) {
-    const { data: rows } = await supabase
+    const { data: rows, error } = await supabase
       .from("user_rulers")
-      .select(`notes, ruler_library(name, brand, shape, size)`)
+      .select(`notes, ruler_library(brand, model, shape, size_inches, material)`)
       .eq("user_id", userId);
+    if (error) console.error("rulers fetch:", error);
     data.rulers = rows || [];
   }
 
   if (sections.patterns) {
-    const { data: rows } = await supabase
+    const { data: rows, error } = await supabase
       .from("user_patterns")
       .select(`custom_brand, custom_designer, custom_pattern_name, pattern_number,
                format, is_printed, location, estimated_value, notes,
                patterns_library(name, brand, designer)`)
       .eq("user_id", userId);
+    if (error) console.error("patterns fetch:", error);
     data.patterns = rows || [];
   }
 
   if (projectIds.length > 0) {
-    const { data: rows } = await supabase
+    const { data: rows, error } = await supabase
       .from("projects")
       .select(`name, project_type, status, start_date, completed_date, due_date,
                estimated_value, sale_price, gifted_to, recipient, notes,
@@ -304,6 +311,7 @@ async function fetchReportData({ userId, sections, projectIds, showValues }) {
                project_costs(item, amount)`)
       .eq("user_id", userId)
       .in("id", projectIds);
+    if (error) console.error("projects fetch:", error);
     data.projects = rows || [];
   }
 
@@ -359,7 +367,7 @@ function buildPrintHTML({ reportData, sections, showValues, ownerName, reportTit
           return `<div class="rpt-card">
             <div class="rpt-card-title">${r.nickname ? `${r.nickname} — ` : ""}${brand} ${model}</div>
             <div class="rpt-card-grid">
-              <div><span>Type</span>${lib.machine_type || "—"}</div>
+              <div><span>Type</span>${lib.type || lib.category || "—"}</div>
               <div><span>Serial #</span>${r.serial_number || "—"}</div>
               <div><span>Condition</span>${r.condition || "—"}</div>
               <div><span>Warranty Until</span>${fmtDate(r.warranty_until)}</div>
@@ -388,15 +396,15 @@ function buildPrintHTML({ reportData, sections, showValues, ownerName, reportTit
         <h2>Presser Feet</h2>
         <table>
           <thead><tr>
-            <th>Name</th><th>Brand</th><th>Type</th><th>Compatibility</th><th>Qty</th><th>Condition</th>
+            <th>Name</th><th>Brand</th><th>Category</th><th>Shank Type</th><th>Qty</th><th>Condition</th>
             ${showValues ? "<th>Purchase Price</th><th>Est. Value</th><th>Purchase Date</th>" : ""}
           </tr></thead>
           <tbody>
             ${reportData.feet.map(r => `<tr>
-              <td>${r.feet_library?.name || "—"}</td>
+              <td>${r.feet_library?.foot_name || "—"}</td>
               <td>${r.feet_library?.brand || "—"}</td>
-              <td>${r.feet_library?.type || "—"}</td>
-              <td>${r.feet_library?.compatibility || "—"}</td>
+              <td>${r.feet_library?.category || "—"}</td>
+              <td>${r.feet_library?.shank_type || "—"}</td>
               <td>${r.quantity || 1}</td>
               <td>${r.condition || "—"}</td>
               ${showValues ? `<td>${fmt(r.purchase_price)}</td><td>${fmt(r.estimated_value)}</td><td>${fmtDate(r.purchase_date)}</td>` : ""}
@@ -413,12 +421,11 @@ function buildPrintHTML({ reportData, sections, showValues, ownerName, reportTit
         <h2>AccuQuilt</h2>
         ${reportData.accuquilt.map(r => {
           const lib = r.accuquilt_library || {};
-          const name = r.custom_product_name || lib.name || "—";
+          const name = r.custom_product_name || lib.product_name || "—";
           return `<div class="rpt-card">
             <div class="rpt-card-title">${r.nickname ? `${r.nickname} — ` : ""}${name}</div>
             <div class="rpt-card-grid">
               <div><span>Type</span>${lib.product_type || "—"}</div>
-              <div><span>SKU</span>${lib.sku || "—"}</div>
               <div><span>Serial #</span>${r.serial_number || "—"}</div>
               <div><span>Condition</span>${r.condition || "—"}</div>
               <div><span>Warranty Until</span>${fmtDate(r.warranty_until)}</div>
@@ -641,7 +648,7 @@ function buildPrintHTML({ reportData, sections, showValues, ownerName, reportTit
 }
 
 // ── Main Component ──────────────────────────────────────────────
-export default function InsuranceReportBuilder({ onClose, userId, showValuesEnabled = false }) {
+export default function InsuranceReportBuilder({ onClose, userId, supabase, showValuesEnabled = false }) {
   const [sections, setSections] = useState({
     threads: true, machines: true, feet: true,
     accuquilt: true, fabric: true, rulers: false, patterns: false,
@@ -680,7 +687,7 @@ export default function InsuranceReportBuilder({ onClose, userId, showValuesEnab
   const handleGenerate = async () => {
     setLoading(true);
     try {
-      const reportData = await fetchReportData({ userId, sections, projectIds: selectedProjects, showValues });
+      const reportData = await fetchReportData({ supabase, userId, sections, projectIds: selectedProjects });
       const html = buildPrintHTML({ reportData, sections, showValues, ownerName, reportTitle });
       const win = window.open("", "_blank");
       win.document.write(html);
