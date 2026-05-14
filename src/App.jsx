@@ -1142,7 +1142,7 @@ function FeetBrowser({ supabase, userId }) {
   const [search,setSearch]=useState("");
   const [filterBrand,setFilterBrand]=useState("All");
   const [filterCategory,setFilterCategory]=useState("All");
-  const [filterShank,setFilterShank]=useState("All");
+  
   const [expandedId,setExpandedId]=useState(null);
   const [browseMode,setBrowseMode]=useState("brand"); // "brand" or "category"
 
@@ -1190,7 +1190,7 @@ function FeetBrowser({ supabase, userId }) {
   ].sort())];
 
   const categories=["All","Quilting","Garment","Embroidery","Specialty","Serging","Coverstitch","General"];
-  const shanks=["All",...new Set(feet.map(f=>f.shank_type).filter(Boolean)).values()].sort();
+  
 
   // Filter logic
   const filtered=feet.filter(f=>{
@@ -1199,7 +1199,7 @@ function FeetBrowser({ supabase, userId }) {
       f.foot_name?.toLowerCase().includes(q)||
       f.brand?.toLowerCase().includes(q)||
       f.foot_number?.toLowerCase().includes(q)||
-      f.shank_type?.toLowerCase().includes(q)||
+      
       f.description?.toLowerCase().includes(q)||
       (Array.isArray(f.best_for)&&f.best_for.some(b=>b.toLowerCase().includes(q)));
 
@@ -1208,8 +1208,8 @@ function FeetBrowser({ supabase, userId }) {
       (Array.isArray(f.compatible_brands)&&f.compatible_brands.includes(filterBrand));
 
     const matchCat=filterCategory==="All"||f.category===filterCategory;
-    const matchShank=filterShank==="All"||f.shank_type===filterShank;
-    return matchSearch&&matchBrand&&matchCat&&matchShank;
+    
+    return matchSearch&&matchBrand&&matchCat;
   });
 
   // Group by brand or category
@@ -1221,7 +1221,7 @@ function FeetBrowser({ supabase, userId }) {
   },{});
 
   const ownedCount=Object.keys(owned).length;
-  const hasFilters=search||filterBrand!=="All"||filterCategory!=="All"||filterShank!=="All";
+  const hasFilters=search||filterBrand!=="All"||filterCategory!=="All";
 
   return(
     <div>
@@ -1251,10 +1251,10 @@ function FeetBrowser({ supabase, userId }) {
         {/* Search */}
         <input className="input" style={{marginBottom:8}} value={search}
           onChange={e=>setSearch(e.target.value)}
-          placeholder="Search foot name, number, shank type, use…"/>
+          placeholder="Search foot name, number, brand, use…"/>
 
         {/* Filters */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
           <label style={{fontSize:11}}>Brand
             <select className="input" style={{marginBottom:0,fontSize:12}}
               value={filterBrand} onChange={e=>setFilterBrand(e.target.value)}>
@@ -1267,19 +1267,13 @@ function FeetBrowser({ supabase, userId }) {
               {categories.map(c=><option key={c}>{c}</option>)}
             </select>
           </label>
-          <label style={{fontSize:11}}>Shank
-            <select className="input" style={{marginBottom:0,fontSize:12}}
-              value={filterShank} onChange={e=>setFilterShank(e.target.value)}>
-              {shanks.map(s=><option key={s}>{s}</option>)}
-            </select>
-          </label>
         </div>
 
         {hasFilters&&(
           <div style={{fontSize:12,color:"var(--teal)",marginTop:8,display:"flex",alignItems:"center",gap:8}}>
             Showing {filtered.length} of {feet.length} feet
             <button className="btn" style={{fontSize:11,padding:"2px 8px"}}
-              onClick={()=>{setSearch("");setFilterBrand("All");setFilterCategory("All");setFilterShank("All");}}>
+              onClick={()=>{setSearch("");setFilterBrand("All");setFilterCategory("All");}}>
               Clear
             </button>
           </div>
@@ -1408,7 +1402,7 @@ function FeetBrowser({ supabase, userId }) {
       {filtered.length===0&&(
         <div className="card" style={{textAlign:"center",padding:"24px"}}>
           <p className="muted">No feet match your search.</p>
-          <button className="btn" onClick={()=>{setSearch("");setFilterBrand("All");setFilterCategory("All");setFilterShank("All");}}>
+          <button className="btn" onClick={()=>{setSearch("");setFilterBrand("All");setFilterCategory("All");}}>
             Clear Filters
           </button>
         </div>
