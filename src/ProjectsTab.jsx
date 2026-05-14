@@ -342,7 +342,7 @@ function ProjectFabrics({ projectId, supabase, userId }) {
 }
 
 // ── MAIN PROJECTS TAB ─────────────────────────────────────────
-function ProjectsTab({ supabase, userId, user, isGuest, selectedProjectId, setSelectedProjectId, addProjectRequiredThread, supaAllThreads }) {
+export function ProjectsTab({ supabase, userId, user, isGuest, selectedProjectId, setSelectedProjectId, addProjectRequiredThread, supaAllThreads }) {
   const [projects, setProjects]             = React.useState([]);
   const [loading, setLoading]               = React.useState(true);
   const [showNewForm, setShowNewForm]       = React.useState(false);
