@@ -569,24 +569,41 @@ function UniversalStash({ supabase, userId, shoppingList, mergedShoppingList, th
 // MACHINES BROWSER
 // ─────────────────────────────────────────────────────────────
 function MachinesBrowser({ supabase, userId }) {
-  const [machines,setMachines]=useState([]);
-  const [owned,setOwned]=useState({});
-  const [filter,setFilter]=useState("All");
-  const [search,setSearch]=useState("");
-  const [loading,setLoading]=useState(true);
-  const types=["All","Sewing","Quilting","Embroidery","Serger","Longarm","Vintage","Fabric Cutter","Computerized"];
+  const [machines,setMachines]   = useState([]);
+  const [owned,setOwned]         = useState({});
+  const [loading,setLoading]     = useState(true);
+  const [search,setSearch]       = useState("");
+  const [filterBrand,setFilterBrand] = useState("All");
+  const [filterType,setFilterType]   = useState("All");
+  const [browseMode,setBrowseMode]   = useState("brand"); // "brand" or "type"
+  const [expandedId,setExpandedId]   = useState(null);
+
+  const typeColors={
+    Sewing:       {bg:"#E8F0FF",text:"#0047AB"},
+    Quilting:     {bg:"#E0F5EC",text:"#1A6B4A"},
+    Embroidery:   {bg:"#F3EAF8",text:"#6B3FA0"},
+    Serger:       {bg:"#FFF8E1",text:"#5C4A1E"},
+    Longarm:      {bg:"#FDE8E0",text:"#A0341A"},
+    Coverstitch:  {bg:"#FFF3E0",text:"#E65100"},
+    Combo:        {bg:"#E8F8F5",text:"#117A65"},
+    "Sewing/Embroidery":{bg:"#F3EAF8",text:"#6B3FA0"},
+    "Sewing/Quilting":  {bg:"#E0F5EC",text:"#1A6B4A"},
+  };
 
   useEffect(()=>{ if(!supabase)return; fetchMachines(); if(userId)fetchOwned(); },[supabase,userId]);
 
   async function fetchMachines(){
     setLoading(true);
-    const{data}=await supabase.from("machine_library").select("*,is_computerized").order("brand").order("model");
-    setMachines(data||[]);setLoading(false);
+    const{data}=await supabase.from("machine_library").select("*").order("brand").order("model");
+    setMachines(data||[]);
+    setLoading(false);
   }
+
   async function fetchOwned(){
     const{data}=await supabase.from("user_machines").select("machine_id").eq("user_id",userId);
     if(data){const m={};data.forEach(r=>{m[r.machine_id]=true;});setOwned(m);}
   }
+
   async function toggleMachine(machineId){
     if(!userId||!supabase)return;
     if(owned[machineId]){
@@ -594,71 +611,251 @@ function MachinesBrowser({ supabase, userId }) {
         .delete().eq("user_id",userId).eq("machine_id",machineId);
       if(error){console.error("Remove machine error:",error);return;}
       setOwned(prev=>{const n={...prev};delete n[machineId];return n;});
-    }else{
+    } else {
       const{error}=await supabase.from("user_machines")
-        .insert({user_id:userId,machine_id:machineId})
-        ;
+        .insert({user_id:userId,machine_id:machineId});
       if(error){
-        // If already exists (duplicate), just mark as owned
-        if(error.code==="23505"){
-          setOwned(prev=>({...prev,[machineId]:true}));
-        } else {
-          console.error("Add machine error:",error);
-        }
+        if(error.code==="23505"){setOwned(prev=>({...prev,[machineId]:true}));}
+        else{console.error("Add machine error:",error);}
         return;
       }
       setOwned(prev=>({...prev,[machineId]:true}));
     }
   }
 
+  if(loading)return<div className="card"><p className="muted">Loading machine library…</p></div>;
+
+  const brands=["All",...new Set(machines.map(m=>m.brand).filter(Boolean))].sort();
+  const types=["All",...new Set(machines.map(m=>m.type).filter(Boolean))].sort();
+
   const filtered=machines.filter(m=>{
-    const matchType = filter==="All"
-      ? true
-      : filter==="Computerized"
-        ? m.is_computerized===true
-        : m.type===filter||m.category?.includes(filter);
     const q=normalized(search);
-    const matchSearch=!q||normalized(m.brand).includes(q)||normalized(m.model).includes(q)||normalized(m.category||"").includes(q);
-    return matchType&&matchSearch;
+    const matchSearch=!q||
+      normalized(m.brand).includes(q)||
+      normalized(m.model).includes(q)||
+      normalized(m.type||"").includes(q)||
+      normalized(m.fun_fact||"").includes(q);
+    const matchBrand=filterBrand==="All"||m.brand===filterBrand;
+    const matchType=filterType==="All"||m.type===filterType;
+    return matchSearch&&matchBrand&&matchType;
   });
 
-  if(loading)return<div className="card"><p className="muted">Loading machine library…</p></div>;
+  const grouped=filtered.reduce((acc,m)=>{
+    const key=browseMode==="brand"?m.brand:(m.type||"Other");
+    if(!acc[key])acc[key]=[];
+    acc[key].push(m);
+    return acc;
+  },{});
+
+  const ownedCount=Object.keys(owned).length;
+  const hasFilters=search||filterBrand!=="All"||filterType!=="All";
+
   return(
     <div>
-      <div className="card" style={{padding:"12px 16px"}}>
-        <h2 style={{marginBottom:10}}>Machine Library ({machines.length})</h2>
-        <input className="input" style={{marginBottom:8}} placeholder="Search brand, model…" value={search} onChange={e=>setSearch(e.target.value)}/>
-        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
-          {types.map(ty=><button key={ty} className={`btn ${filter===ty?"active":""}`} onClick={()=>setFilter(ty)} style={{fontSize:11,padding:"4px 8px"}}>{ty}</button>)}
-        </div>
-      </div>
-      <div className="card" style={{padding:"8px 12px"}}><p className="muted">{filtered.length} machines — tap to add to your stash</p></div>
-      {filtered.map(machine=>{
-        const isOwned=owned[machine.id];
-        return(
-          <div key={machine.id} className="card" style={{borderColor:isOwned?"#1A5C1A":undefined}}>
-            <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
-              <div style={{flex:1}}>
-                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}>
-                  <span className="type-badge">{machine.type}</span>
-                  {machine.is_computerized&&(
-                    <span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:6,
-                      background:"var(--sky-pale)",color:"var(--sky-cobalt)",
-                      border:"1px solid rgba(37,99,192,0.25)"}}>
-                      💻 Computerized
-                    </span>
-                  )}
-                  {machine.category&&<span className="muted" style={{fontSize:11}}>{machine.category}</span>}
-                </div>
-                <div className="thread-name">{machine.brand} {machine.model}</div>
-                {machine.throat_space&&<div className="muted">{machine.throat_space}" throat</div>}
-                {machine.fun_fact&&<p style={{fontSize:12,margin:"6px 0 0",color:"#5C4A1E",lineHeight:1.4}}>{machine.fun_fact.slice(0,120)}{machine.fun_fact.length>120?"…":""}</p>}
-              </div>
-              <button className={`btn ${isOwned?"active":""}`} style={{flexShrink:0}} onClick={()=>toggleMachine(machine.id)}>{isOwned?"✓ Owned":"+ Add"}</button>
+      {/* Header */}
+      <div className="card" style={{padding:"14px 18px"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+          <div>
+            <h2 style={{margin:0}}>Machine Library</h2>
+            <div className="muted" style={{fontSize:12,marginTop:2}}>
+              {machines.length} machines · {ownedCount} owned · Tap + Add to track in your stash
             </div>
           </div>
-        );
-      })}
+        </div>
+
+        {/* Browse mode toggle */}
+        <div style={{display:"flex",gap:6,marginBottom:10}}>
+          <button className={`btn ${browseMode==="brand"?"active":""}`}
+            style={{fontSize:12,flex:1}} onClick={()=>setBrowseMode("brand")}>
+            Browse by Brand
+          </button>
+          <button className={`btn ${browseMode==="type"?"active":""}`}
+            style={{fontSize:12,flex:1}} onClick={()=>setBrowseMode("type")}>
+            Browse by Type
+          </button>
+        </div>
+
+        {/* Search */}
+        <input className="input" style={{marginBottom:8}} value={search}
+          onChange={e=>setSearch(e.target.value)}
+          placeholder="Search brand, model, type…"/>
+
+        {/* Filters */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          <label style={{fontSize:11}}>Brand
+            <select className="input" style={{marginBottom:0,fontSize:12}}
+              value={filterBrand} onChange={e=>setFilterBrand(e.target.value)}>
+              {brands.map(b=><option key={b}>{b}</option>)}
+            </select>
+          </label>
+          <label style={{fontSize:11}}>Type
+            <select className="input" style={{marginBottom:0,fontSize:12}}
+              value={filterType} onChange={e=>setFilterType(e.target.value)}>
+              {types.map(t=><option key={t}>{t}</option>)}
+            </select>
+          </label>
+        </div>
+
+        {hasFilters&&(
+          <div style={{fontSize:12,color:"var(--teal)",marginTop:8,display:"flex",alignItems:"center",gap:8}}>
+            Showing {filtered.length} of {machines.length} machines
+            <button className="btn" style={{fontSize:11,padding:"2px 8px"}}
+              onClick={()=>{setSearch("");setFilterBrand("All");setFilterType("All");}}>
+              Clear
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Grouped machines */}
+      {Object.entries(grouped).sort(([a],[b])=>a.localeCompare(b)).map(([groupName,items])=>(
+        <div key={groupName}>
+          <div className="section-label">
+            {groupName} ({items.length}) — {items.filter(m=>owned[m.id]).length} owned
+          </div>
+          {items.map(machine=>{
+            const isOwned=owned[machine.id];
+            const isExpanded=expandedId===machine.id;
+            const tc=typeColors[machine.type]||{bg:"#F5F5F5",text:"#888"};
+
+            return(
+              <div key={machine.id} className="card"
+                style={{borderColor:isOwned?"var(--leaf)":undefined,
+                  borderWidth:isOwned?2:undefined,padding:"12px 14px"}}>
+                <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    {/* Type + computerized badges */}
+                    <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:5}}>
+                      {machine.type&&(
+                        <span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:8,
+                          background:tc.bg,color:tc.text}}>
+                          {machine.type}
+                        </span>
+                      )}
+                      {machine.is_computerized&&(
+                        <span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:6,
+                          background:"var(--sky-pale)",color:"var(--sky-cobalt)",
+                          border:"1px solid rgba(37,99,192,0.25)"}}>
+                          💻 Computerized
+                        </span>
+                      )}
+                      {machine.wifi&&(
+                        <span style={{fontSize:10,padding:"2px 7px",borderRadius:6,
+                          background:"#E8F0FF",color:"#0047AB"}}>
+                          📶 WiFi
+                        </span>
+                      )}
+                      {isOwned&&(
+                        <span style={{fontSize:10,padding:"2px 7px",borderRadius:8,
+                          background:"var(--leaf-wash)",color:"var(--leaf)",fontWeight:700}}>
+                          ✓ Owned
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Brand + Model */}
+                    <div className="thread-name" style={{fontSize:13,marginBottom:3}}>
+                      {machine.brand} {machine.model}
+                    </div>
+
+                    {/* Quick specs */}
+                    <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:4}}>
+                      {machine.throat_space&&(
+                        <span style={{fontSize:11,color:"var(--muted-warm)"}}>
+                          📐 {machine.throat_space}" throat
+                        </span>
+                      )}
+                      {machine.embroidery_field&&(
+                        <span style={{fontSize:11,color:"var(--muted-warm)"}}>
+                          🧵 {machine.embroidery_field} field
+                        </span>
+                      )}
+                      {machine.stitch_count&&(
+                        <span style={{fontSize:11,color:"var(--muted-warm)"}}>
+                          {machine.stitch_count.toLocaleString()} stitches
+                        </span>
+                      )}
+                      {machine.msrp&&(
+                        <span style={{fontSize:11,color:"var(--leaf)",fontWeight:600}}>
+                          {machine.msrp}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Feature chips */}
+                    <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:4}}>
+                      {machine.auto_threader&&<span style={{fontSize:10,padding:"1px 5px",background:"#F5F5F5",color:"#888",borderRadius:4}}>Auto threader</span>}
+                      {machine.auto_thread_cutter&&<span style={{fontSize:10,padding:"1px 5px",background:"#F5F5F5",color:"#888",borderRadius:4}}>Thread cutter</span>}
+                      {machine.knee_lifter&&<span style={{fontSize:10,padding:"1px 5px",background:"#F5F5F5",color:"#888",borderRadius:4}}>Knee lifter</span>}
+                      {machine.bsr_stitch_regulator&&<span style={{fontSize:10,padding:"1px 5px",background:"#F5F5F5",color:"#888",borderRadius:4}}>BSR</span>}
+                      {machine.touchscreen&&<span style={{fontSize:10,padding:"1px 5px",background:"#F5F5F5",color:"#888",borderRadius:4}}>Touchscreen</span>}
+                      {machine.usb&&<span style={{fontSize:10,padding:"1px 5px",background:"#F5F5F5",color:"#888",borderRadius:4}}>USB</span>}
+                    </div>
+
+                    {/* Fun fact */}
+                    {machine.fun_fact&&(
+                      <div style={{marginTop:3}}>
+                        <p style={{fontSize:12,margin:0,color:"#5C4A1E",lineHeight:1.4,
+                          display:isExpanded?"block":"-webkit-box",
+                          WebkitLineClamp:isExpanded?undefined:2,
+                          WebkitBoxOrient:"vertical",
+                          overflow:isExpanded?"visible":"hidden"}}>
+                          {machine.fun_fact}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Expanded details */}
+                    {isExpanded&&(
+                      <div style={{marginTop:8,display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                        {machine.feed_system&&<div style={{fontSize:11}}><b>Feed:</b> {machine.feed_system}</div>}
+                        {machine.bobbin_type&&<div style={{fontSize:11}}><b>Bobbin:</b> {machine.bobbin_type}</div>}
+                        {machine.sewing_speed&&<div style={{fontSize:11}}><b>Speed:</b> {machine.sewing_speed} spm</div>}
+                        {machine.needle_positions&&<div style={{fontSize:11}}><b>Needle pos:</b> {machine.needle_positions}</div>}
+                        {machine.weight&&<div style={{fontSize:11}}><b>Weight:</b> {machine.weight}</div>}
+                        {machine.dimensions&&<div style={{fontSize:11,gridColumn:"1/-1"}}><b>Dimensions:</b> {machine.dimensions}</div>}
+                        {machine.warranty&&<div style={{fontSize:11}}><b>Warranty:</b> {machine.warranty}</div>}
+                        {machine.country_made&&<div style={{fontSize:11}}><b>Made in:</b> {machine.country_made}</div>}
+                        {machine.manufacturer_url&&(
+                          <div style={{fontSize:11,gridColumn:"1/-1"}}>
+                            <a href={machine.manufacturer_url} target="_blank" rel="noopener noreferrer"
+                              style={{color:"var(--teal)"}}>
+                              View on manufacturer site →
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Expand toggle */}
+                    <button style={{background:"none",border:"none",color:"var(--teal)",
+                      fontSize:11,cursor:"pointer",padding:"3px 0"}}
+                      onClick={()=>setExpandedId(isExpanded?null:machine.id)}>
+                      {isExpanded?"▲ Less":"▼ More"}
+                    </button>
+                  </div>
+
+                  <button className={`btn ${isOwned?"active":""}`}
+                    style={{flexShrink:0,fontSize:11,padding:"6px 12px"}}
+                    onClick={()=>toggleMachine(machine.id)}>
+                    {isOwned?"✓ Owned":"+ Add"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ))}
+
+      {filtered.length===0&&(
+        <div className="card" style={{textAlign:"center",padding:"24px"}}>
+          <p className="muted">No machines match your search.</p>
+          <button className="btn"
+            onClick={()=>{setSearch("");setFilterBrand("All");setFilterType("All");}}>
+            Clear Filters
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -941,51 +1138,281 @@ function RulerBrowser({ supabase, userId }) {
 function FeetBrowser({ supabase, userId }) {
   const [feet,setFeet]=useState([]);
   const [owned,setOwned]=useState({});
-  const [filter,setFilter]=useState("All");
   const [loading,setLoading]=useState(true);
-  const categories=["All","Quilting","Garment","Embroidery","Specialty","Serging","General"];
-  const catColors={Quilting:{bg:"#E8F0FF",text:"#0047AB"},Garment:{bg:"#E0F5EC",text:"#1A6B4A"},Embroidery:{bg:"#F3EAF8",text:"#6B3FA0"},Serging:{bg:"#FFF8E1",text:"#5C4A1E"},Specialty:{bg:"#FDECEA",text:"#C0392B"},General:{bg:"#F5F5F5",text:"#888"}};
+  const [search,setSearch]=useState("");
+  const [filterBrand,setFilterBrand]=useState("All");
+  const [filterCategory,setFilterCategory]=useState("All");
+  const [filterShank,setFilterShank]=useState("All");
+  const [expandedId,setExpandedId]=useState(null);
+  const [browseMode,setBrowseMode]=useState("brand"); // "brand" or "category"
+
+  const catColors={
+    Quilting:{bg:"#E8F0FF",text:"#0047AB"},
+    Garment:{bg:"#E0F5EC",text:"#1A6B4A"},
+    Embroidery:{bg:"#F3EAF8",text:"#6B3FA0"},
+    Serging:{bg:"#FFF8E1",text:"#5C4A1E"},
+    Coverstitch:{bg:"#FFF3E0",text:"#E65100"},
+    Specialty:{bg:"#FDECEA",text:"#C0392B"},
+    General:{bg:"#F5F5F5",text:"#888"}
+  };
+
   useEffect(()=>{ if(!supabase)return; fetchFeet(); if(userId)fetchOwned(); },[supabase,userId]);
-  async function fetchFeet(){ setLoading(true); const{data}=await supabase.from("feet_library").select("*").order("category").order("foot_name"); setFeet(data||[]); setLoading(false); }
-  async function fetchOwned(){ const{data}=await supabase.from("user_feet").select("foot_id").eq("user_id",userId); if(data){const m={};data.forEach(r=>{m[r.foot_id]=true;});setOwned(m);} }
+
+  async function fetchFeet(){
+    setLoading(true);
+    const{data}=await supabase.from("feet_library").select("*").order("brand").order("category").order("foot_name");
+    setFeet(data||[]);
+    setLoading(false);
+  }
+
+  async function fetchOwned(){
+    const{data}=await supabase.from("user_feet").select("foot_id").eq("user_id",userId);
+    if(data){const m={};data.forEach(r=>{m[r.foot_id]=true;});setOwned(m);}
+  }
+
   async function toggleFoot(footId){
     if(!userId||!supabase)return;
-    if(owned[footId]){ await supabase.from("user_feet").delete().eq("user_id",userId).eq("foot_id",footId); setOwned(prev=>{const n={...prev};delete n[footId];return n;}); }
-    else{ await supabase.from("user_feet").upsert({user_id:userId,foot_id:footId,quantity:1},{onConflict:"user_id,foot_id"}); setOwned(prev=>({...prev,[footId]:true})); }
+    if(owned[footId]){
+      await supabase.from("user_feet").delete().eq("user_id",userId).eq("foot_id",footId);
+      setOwned(prev=>{const n={...prev};delete n[footId];return n;});
+    } else {
+      await supabase.from("user_feet").upsert({user_id:userId,foot_id:footId,quantity:1},{onConflict:"user_id,foot_id"});
+      setOwned(prev=>({...prev,[footId]:true}));
+    }
   }
-  const filtered=filter==="All"?feet:feet.filter(f=>f.category===filter);
+
   if(loading)return<div className="card"><p className="muted">Loading feet library…</p></div>;
+
+  // Build brand list from both brand field AND compatible_brands array
+  const allBrands=["All",...new Set([
+    ...feet.map(f=>f.brand).filter(Boolean),
+    ...feet.flatMap(f=>Array.isArray(f.compatible_brands)?f.compatible_brands:[]).filter(Boolean)
+  ].sort())];
+
+  const categories=["All","Quilting","Garment","Embroidery","Specialty","Serging","Coverstitch","General"];
+  const shanks=["All",...new Set(feet.map(f=>f.shank_type).filter(Boolean)).values()].sort();
+
+  // Filter logic
+  const filtered=feet.filter(f=>{
+    const q=search.toLowerCase();
+    const matchSearch=!q||
+      f.foot_name?.toLowerCase().includes(q)||
+      f.brand?.toLowerCase().includes(q)||
+      f.foot_number?.toLowerCase().includes(q)||
+      f.shank_type?.toLowerCase().includes(q)||
+      f.description?.toLowerCase().includes(q)||
+      (Array.isArray(f.best_for)&&f.best_for.some(b=>b.toLowerCase().includes(q)));
+
+    const matchBrand=filterBrand==="All"||
+      f.brand===filterBrand||
+      (Array.isArray(f.compatible_brands)&&f.compatible_brands.includes(filterBrand));
+
+    const matchCat=filterCategory==="All"||f.category===filterCategory;
+    const matchShank=filterShank==="All"||f.shank_type===filterShank;
+    return matchSearch&&matchBrand&&matchCat&&matchShank;
+  });
+
+  // Group by brand or category
+  const grouped=filtered.reduce((acc,f)=>{
+    const key=browseMode==="brand"?f.brand:(f.category||"General");
+    if(!acc[key])acc[key]=[];
+    acc[key].push(f);
+    return acc;
+  },{});
+
+  const ownedCount=Object.keys(owned).length;
+  const hasFilters=search||filterBrand!=="All"||filterCategory!=="All"||filterShank!=="All";
+
   return(
     <div>
-      <div style={{display:"flex",gap:5,flexWrap:"wrap",padding:"0 0 8px"}}>
-        {categories.map(cat=><button key={cat} className={`btn ${filter===cat?"active":""}`} onClick={()=>setFilter(cat)} style={{fontSize:11,padding:"4px 8px"}}>{cat}</button>)}
-      </div>
-      <div className="card" style={{padding:"8px 12px"}}><p className="muted">{filtered.length} feet — tap to add to your stash</p></div>
-      {filtered.map(foot=>{
-        const c=catColors[foot.category]||catColors.General;const isOwned=owned[foot.id];
-        return(
-          <div key={foot.id} className="card" style={{borderColor:isOwned?"#1A5C1A":undefined}}>
-            <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
-              <div style={{flex:1}}>
-                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
-                  <span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:8,background:c.bg,color:c.text}}>{foot.category}</span>
-                  {foot.foot_number&&<span className="muted" style={{fontSize:11}}>#{foot.foot_number}</span>}
-                </div>
-                <div className="thread-name">{foot.foot_name}</div>
-                <div className="muted">{foot.brand} · {foot.shank_type}</div>
-                {foot.description&&<p style={{fontSize:12,margin:"4px 0 0",color:"#5C4A1E",lineHeight:1.4}}>{foot.description}</p>}
-                {foot.best_for&&foot.best_for.length>0&&(
-                  <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:6}}>
-                    {foot.best_for.slice(0,4).map((u,i)=><span key={i} style={{fontSize:10,padding:"1px 5px",background:"#F5F5F5",color:"#888",borderRadius:4}}>{u}</span>)}
-                  </div>
-                )}
-              </div>
-              <button className={`btn ${isOwned?"active":""}`} style={{flexShrink:0}} onClick={()=>toggleFoot(foot.id)}>{isOwned?"✓ Owned":"+ Add"}</button>
+      {/* Header */}
+      <div className="card" style={{padding:"14px 18px"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+          <div>
+            <h2 style={{margin:0}}>Presser Feet</h2>
+            <div className="muted" style={{fontSize:12,marginTop:2}}>
+              {feet.length} feet · {ownedCount} owned · Tap + Add to track in your stash
             </div>
           </div>
-        );
-      })}
-      {feet.length===0&&<div className="card"><p className="muted">Run steps 30+31 SQL to load feet data.</p></div>}
+        </div>
+
+        {/* Browse mode toggle */}
+        <div style={{display:"flex",gap:6,marginBottom:10}}>
+          <button className={`btn ${browseMode==="brand"?"active":""}`}
+            style={{fontSize:12,flex:1}} onClick={()=>setBrowseMode("brand")}>
+            Browse by Brand
+          </button>
+          <button className={`btn ${browseMode==="category"?"active":""}`}
+            style={{fontSize:12,flex:1}} onClick={()=>setBrowseMode("category")}>
+            Browse by Category
+          </button>
+        </div>
+
+        {/* Search */}
+        <input className="input" style={{marginBottom:8}} value={search}
+          onChange={e=>setSearch(e.target.value)}
+          placeholder="Search foot name, number, shank type, use…"/>
+
+        {/* Filters */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+          <label style={{fontSize:11}}>Brand
+            <select className="input" style={{marginBottom:0,fontSize:12}}
+              value={filterBrand} onChange={e=>setFilterBrand(e.target.value)}>
+              {allBrands.map(b=><option key={b}>{b}</option>)}
+            </select>
+          </label>
+          <label style={{fontSize:11}}>Category
+            <select className="input" style={{marginBottom:0,fontSize:12}}
+              value={filterCategory} onChange={e=>setFilterCategory(e.target.value)}>
+              {categories.map(c=><option key={c}>{c}</option>)}
+            </select>
+          </label>
+          <label style={{fontSize:11}}>Shank
+            <select className="input" style={{marginBottom:0,fontSize:12}}
+              value={filterShank} onChange={e=>setFilterShank(e.target.value)}>
+              {shanks.map(s=><option key={s}>{s}</option>)}
+            </select>
+          </label>
+        </div>
+
+        {hasFilters&&(
+          <div style={{fontSize:12,color:"var(--teal)",marginTop:8,display:"flex",alignItems:"center",gap:8}}>
+            Showing {filtered.length} of {feet.length} feet
+            <button className="btn" style={{fontSize:11,padding:"2px 8px"}}
+              onClick={()=>{setSearch("");setFilterBrand("All");setFilterCategory("All");setFilterShank("All");}}>
+              Clear
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Grouped feet */}
+      {Object.entries(grouped).sort(([a],[b])=>a.localeCompare(b)).map(([groupName,items])=>(
+        <div key={groupName}>
+          <div className="section-label">
+            {groupName} ({items.length}) — {items.filter(f=>owned[f.id]).length} owned
+          </div>
+          {items.map(foot=>{
+            const c=catColors[foot.category]||catColors.General;
+            const isOwned=owned[foot.id];
+            const isExpanded=expandedId===foot.id;
+            const compatBrands=Array.isArray(foot.compatible_brands)?foot.compatible_brands:[];
+
+            return(
+              <div key={foot.id} className="card"
+                style={{borderColor:isOwned?"var(--leaf)":undefined,
+                  borderWidth:isOwned?2:undefined,padding:"12px 14px"}}>
+                <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    {/* Category + foot number badges */}
+                    <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:5}}>
+                      <span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:8,
+                        background:c.bg,color:c.text}}>
+                        {foot.category}
+                      </span>
+                      {foot.foot_number&&(
+                        <span style={{fontSize:10,padding:"2px 7px",borderRadius:8,
+                          background:"var(--teal-pale)",color:"var(--teal)"}}>
+                          #{foot.foot_number}
+                        </span>
+                      )}
+                      {isOwned&&(
+                        <span style={{fontSize:10,padding:"2px 7px",borderRadius:8,
+                          background:"var(--leaf-wash)",color:"var(--leaf)",fontWeight:700}}>
+                          ✓ Owned
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Name */}
+                    <div className="thread-name" style={{fontSize:13,marginBottom:3}}>{foot.foot_name}</div>
+
+                    {/* Brand + shank */}
+                    <div className="muted" style={{fontSize:12,marginBottom:4}}>
+                      {foot.brand} · {foot.shank_type}
+                    </div>
+
+                    {/* Compatible brands chips */}
+                    {compatBrands.length>0&&browseMode==="category"&&(
+                      <div style={{display:"flex",flexWrap:"wrap",gap:3,marginBottom:5}}>
+                        {compatBrands.slice(0,6).map((b,i)=>(
+                          <span key={i} style={{fontSize:10,padding:"1px 6px",borderRadius:4,
+                            background:"#F0F4FF",color:"#1A3C8F",border:"1px solid #C5D3F0"}}>
+                            {b}
+                          </span>
+                        ))}
+                        {compatBrands.length>6&&(
+                          <span style={{fontSize:10,color:"var(--muted-warm)"}}>+{compatBrands.length-6} more</span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Description */}
+                    {foot.description&&(
+                      <div style={{marginTop:3}}>
+                        <p style={{fontSize:12,margin:0,color:"#5C4A1E",lineHeight:1.4,
+                          display:isExpanded?"block":"-webkit-box",
+                          WebkitLineClamp:isExpanded?undefined:2,
+                          WebkitBoxOrient:"vertical",
+                          overflow:isExpanded?"visible":"hidden"}}>
+                          {foot.description}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Best for tags */}
+                    {foot.best_for&&foot.best_for.length>0&&(
+                      <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:5}}>
+                        {(isExpanded?foot.best_for:foot.best_for.slice(0,3)).map((u,i)=>(
+                          <span key={i} style={{fontSize:10,padding:"1px 5px",
+                            background:"#F5F5F5",color:"#888",borderRadius:4}}>
+                            {u}
+                          </span>
+                        ))}
+                        {!isExpanded&&foot.best_for.length>3&&(
+                          <span style={{fontSize:10,color:"var(--muted-warm)"}}>+{foot.best_for.length-3}</span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Notes when expanded */}
+                    {isExpanded&&foot.notes&&(
+                      <div style={{marginTop:6,padding:"6px 8px",background:"var(--linen)",
+                        borderRadius:6,fontSize:11,color:"var(--muted-warm)",fontStyle:"italic"}}>
+                        💡 {foot.notes}
+                      </div>
+                    )}
+
+                    {/* Expand toggle */}
+                    {(foot.description?.length>80||foot.best_for?.length>3||foot.notes)&&(
+                      <button style={{background:"none",border:"none",color:"var(--teal)",
+                        fontSize:11,cursor:"pointer",padding:"3px 0"}}
+                        onClick={()=>setExpandedId(isExpanded?null:foot.id)}>
+                        {isExpanded?"▲ Less":"▼ More"}
+                      </button>
+                    )}
+                  </div>
+
+                  <button className={`btn ${isOwned?"active":""}`}
+                    style={{flexShrink:0,fontSize:11,padding:"6px 12px"}}
+                    onClick={()=>toggleFoot(foot.id)}>
+                    {isOwned?"✓ Owned":"+ Add"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ))}
+
+      {filtered.length===0&&(
+        <div className="card" style={{textAlign:"center",padding:"24px"}}>
+          <p className="muted">No feet match your search.</p>
+          <button className="btn" onClick={()=>{setSearch("");setFilterBrand("All");setFilterCategory("All");setFilterShank("All");}}>
+            Clear Filters
+          </button>
+        </div>
+      )}
     </div>
   );
 }
