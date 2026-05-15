@@ -1479,7 +1479,7 @@ function CrossRefTab({ supaAllThreads, threadBrands, brandKeyMap, addToUserInven
 
           if(!error && data && data.length > 0){
             const brandMatches = data
-              .filter(r => r.thread_library?.brand_key === brandBKey)
+              .filter(r => r.thread_library?.brand_key === brandBKey && r.distance <= 20)
               .slice(0,5)
               .map(r => ({...r.thread_library, _distance: r.distance, _distance_pct: r.distance_pct}));
 
@@ -1487,6 +1487,8 @@ function CrossRefTab({ supaAllThreads, threadBrands, brandKeyMap, addToUserInven
               setResults(brandMatches);
               return;
             }
+            setResults([{_noEquivalent: true}]);
+            return;
           }
         }catch(e){
           // Crossref table not available yet — fall through to live computation
@@ -1499,9 +1501,11 @@ function CrossRefTab({ supaAllThreads, threadBrands, brandKeyMap, addToUserInven
       const matches = supaAllThreads
         .filter(t => t.brand_key === brandBKey && t.hex_color)
         .map(t => ({ thread:t, dist:colorDistance(rgb, hexToRgb(t.hex_color)) }))
+        .filter(m => m.dist <= 20)
         .sort((a,b) => a.dist - b.dist)
         .slice(0,5)
         .map(m => m.thread);
+      if(matches.length === 0){ setResults([{_noEquivalent: true}]); return; }
       setResults(matches);
     }
 
